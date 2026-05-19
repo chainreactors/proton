@@ -58,9 +58,21 @@ type patternIndex struct {
 	fallbackSources  []int
 }
 
+type matchHit struct {
+	Value  string
+	Line   int
+	Offset int
+}
+
 type fileResult struct {
-	matcherHits   map[int][]string
-	extractorHits map[int]map[string]struct{}
+	matcherHits   map[int][]matchHit
+	extractorHits map[int][]matchHit
+}
+
+type MatchEvent struct {
+	Value  string `json:"value"`
+	Line   int    `json:"line"`
+	Offset int    `json:"offset,omitempty"`
 }
 
 type Finding struct {
@@ -68,6 +80,8 @@ type Finding struct {
 	TemplateName string
 	Severity     string
 	FilePath     string
+	Matches      map[string][]MatchEvent
+	Extracts     []MatchEvent
 	Result       *operators.Result
 }
 
@@ -324,7 +338,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 		path  string
 		group *scanGroup
 	}
-	jobCh := make(chan fileJob, numWorkers*64)
+	jobCh := make(chan fileJob, numWorkers*256)
 	var cbMu sync.Mutex
 	var wg sync.WaitGroup
 
@@ -345,11 +359,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 		}()
 	}
 
-	var paths []struct {
-		path  string
-		group *scanGroup
-	}
-	var mu sync.Mutex
+	// Stream dispatch: walk and process in parallel.
 	walkErr := fastwalk.Walk(nil, target, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -360,6 +370,9 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 			}
 			return nil
 		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
 		ext := filepath.Ext(path)
 		if _, deny := alwaysDenyExts[ext]; deny {
 			return nil
@@ -368,21 +381,11 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 			if !group.matchesFile(path, ext) {
 				continue
 			}
-			mu.Lock()
-			paths = append(paths, struct {
-				path  string
-				group *scanGroup
-			}{path: path, group: group})
-			mu.Unlock()
+			jobCh <- fileJob{path: path, group: group}
 		}
 		return nil
 	})
-	go func() {
-		for _, p := range paths {
-			jobCh <- fileJob{path: p.path, group: p.group}
-		}
-		close(jobCh)
-	}()
+	close(jobCh)
 	wg.Wait()
 	return walkErr
 }
@@ -410,8 +413,8 @@ func (g *scanGroup) matchesFile(path, ext string) bool {
 const unifiedMmapMinSize = 32 * 1024
 
 func (s *Scanner) processFile(path string, group *scanGroup) []Finding {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	info, err := os.Stat(path)
+	if err != nil {
 		return nil
 	}
 	size := info.Size()
@@ -470,6 +473,8 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 	srcBuf := make([]int, 0, len(group.patternSources))
 	srcSeen := make([]bool, len(group.patternSources))
 
+	lineNum := 0
+	byteOffset := 0
 	remaining := data
 	for len(remaining) > 0 {
 		idx := bytes.IndexByte(remaining, '\n')
@@ -481,6 +486,9 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 			line = remaining
 			remaining = nil
 		}
+		lineNum++
+		lineOffset := byteOffset
+		byteOffset += len(line) + 1
 		if len(line) > 0 && line[len(line)-1] == '\r' {
 			line = line[:len(line)-1]
 		}
@@ -505,19 +513,22 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 				}
 				groupPlusOne := src.RegexGroup + 1
 				res := &results[src.TemplateIdx]
-				if res.extractorHits[src.OperatorIdx] == nil {
-					res.extractorHits[src.OperatorIdx] = make(map[string]struct{})
-				}
 				for _, m := range matches {
 					if len(m) >= groupPlusOne {
-						res.extractorHits[src.OperatorIdx][m[src.RegexGroup]] = struct{}{}
+						res.extractorHits[src.OperatorIdx] = append(
+							res.extractorHits[src.OperatorIdx],
+							matchHit{Value: m[src.RegexGroup], Line: lineNum, Offset: lineOffset})
 					}
 				}
 			} else {
 				if re.MatchString(lineStr) {
 					matched := re.FindAllString(lineStr, -1)
 					res := &results[src.TemplateIdx]
-					res.matcherHits[src.OperatorIdx] = append(res.matcherHits[src.OperatorIdx], matched...)
+					for _, val := range matched {
+						res.matcherHits[src.OperatorIdx] = append(
+							res.matcherHits[src.OperatorIdx],
+							matchHit{Value: val, Line: lineNum, Offset: lineOffset})
+					}
 				}
 			}
 		}
@@ -531,11 +542,19 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 				switch matcher.GetType() {
 				case operators.WordsMatcher:
 					if matched, words := req.matchWordsOnCorpus(matcher, lineStr); matched {
-						results[tmplIdx].matcherHits[matcherIdx] = append(results[tmplIdx].matcherHits[matcherIdx], words...)
+						for _, w := range words {
+							results[tmplIdx].matcherHits[matcherIdx] = append(
+								results[tmplIdx].matcherHits[matcherIdx],
+								matchHit{Value: w, Line: lineNum, Offset: lineOffset})
+						}
 					}
 				case operators.BinaryMatcher:
 					if matched, bins := matcher.MatchBinary(lineStr); matched {
-						results[tmplIdx].matcherHits[matcherIdx] = append(results[tmplIdx].matcherHits[matcherIdx], bins...)
+						for _, b := range bins {
+							results[tmplIdx].matcherHits[matcherIdx] = append(
+								results[tmplIdx].matcherHits[matcherIdx],
+								matchHit{Value: b, Line: lineNum, Offset: lineOffset})
+						}
 					}
 				}
 			}
@@ -715,8 +734,8 @@ func (s *Scanner) getFileResults(n int) []fileResult {
 	}
 	results := make([]fileResult, n)
 	for i := range results {
-		results[i].matcherHits = make(map[int][]string)
-		results[i].extractorHits = make(map[int]map[string]struct{})
+		results[i].matcherHits = make(map[int][]matchHit)
+		results[i].extractorHits = make(map[int][]matchHit)
 	}
 	return results
 }
@@ -724,9 +743,11 @@ func (s *Scanner) getFileResults(n int) []fileResult {
 func (s *Scanner) putFileResults(results []fileResult) {
 	for i := range results {
 		for k := range results[i].matcherHits {
+			results[i].matcherHits[k] = results[i].matcherHits[k][:0]
 			delete(results[i].matcherHits, k)
 		}
 		for k := range results[i].extractorHits {
+			results[i].extractorHits[k] = results[i].extractorHits[k][:0]
 			delete(results[i].extractorHits, k)
 		}
 	}
@@ -749,6 +770,7 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 	}
 	matcherCondition := ops.GetMatchersCondition()
 	matched := false
+	findingMatches := make(map[string][]MatchEvent)
 	resultMatches := make(map[string][]string)
 
 	for idx, matcher := range ops.Matchers {
@@ -762,7 +784,10 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 			if name == "" {
 				name = fmt.Sprintf("matcher-%d", idx)
 			}
-			resultMatches[name] = hits
+			for _, h := range hits {
+				findingMatches[name] = append(findingMatches[name], MatchEvent{Value: h.Value, Line: h.Line, Offset: h.Offset})
+				resultMatches[name] = append(resultMatches[name], h.Value)
+			}
 			matched = true
 			if matcherCondition == operators.ORCondition {
 				break
@@ -772,17 +797,19 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 		}
 	}
 
+	var findingExtracts []MatchEvent
 	resultExtracts := make(map[string][]string)
 	var outputExtracts []string
 	seen := make(map[string]struct{})
 	for idx, ext := range ops.Extractors {
-		extracts := res.extractorHits[idx]
-		if len(extracts) == 0 {
+		hits := res.extractorHits[idx]
+		if len(hits) == 0 {
 			continue
 		}
 		var extractList []string
-		for e := range extracts {
-			extractList = append(extractList, e)
+		for _, h := range hits {
+			extractList = append(extractList, h.Value)
+			findingExtracts = append(findingExtracts, MatchEvent{Value: h.Value, Line: h.Line, Offset: h.Offset})
 		}
 		if ext.Name != "" && !ext.Internal {
 			resultExtracts[ext.Name] = extractList
@@ -806,6 +833,8 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 	return &Finding{
 		TemplateID: tmplRef.ID, TemplateName: tmplRef.Name, Severity: tmplRef.Severity,
 		FilePath: filePath,
+		Matches:  findingMatches,
+		Extracts: findingExtracts,
 		Result: &operators.Result{
 			Matched: matched, Extracted: len(outputExtracts) > 0,
 			Matches: resultMatches, Extracts: resultExtracts, OutputExtracts: outputExtracts,
@@ -814,64 +843,3 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 }
 
 
-func (s *Scanner) DebugProcessFile(path string) {
-	for i, g := range s.Groups {
-		ext := filepath.Ext(path)
-		if !g.matchesFile(path, ext) {
-			fmt.Printf("  Group %d: SKIPPED by matchesFile\n", i)
-			continue
-		}
-		fmt.Printf("  Group %d: matchesFile PASS\n", i)
-
-		data, _ := os.ReadFile(path)
-		fmt.Printf("  File content (%d bytes): %q\n", len(data), string(data))
-
-		buf := make([]int, 0, len(g.patternSources))
-		seen := make([]bool, len(g.patternSources))
-		lines := strings.Split(string(data), "\n")
-		for li, line := range lines {
-			if len(line) == 0 {
-				continue
-			}
-			relevant := g.index.relevantSources(line, &buf, seen)
-			fmt.Printf("  Line %d: %q → relevant=%d sources\n", li, line, len(relevant))
-			for _, srcIdx := range relevant {
-				src := &g.patternSources[srcIdx]
-				re := getOrCompileRE2(src.Pattern)
-				if re != nil {
-					m := re.MatchString(line)
-					fmt.Printf("    src[%d] tmpl=%d pat=%q ext=%v → match=%v\n",
-						srcIdx, src.TemplateIdx, src.Pattern[:min(40, len(src.Pattern))], src.IsExtractor, m)
-				}
-			}
-		}
-
-		findings := s.processFile(path, g)
-		fmt.Printf("  findings=%d\n", len(findings))
-	}
-}
-
-func min(a, b int) int {
-	if a < b { return a }
-	return b
-}
-
-func (s *Scanner) DebugPatternIndex() {
-	for i, g := range s.Groups {
-		if !g.AllExtensions { continue }
-		fmt.Printf("Group %d: %d patterns, %d literals, %d fallback\n",
-			i, len(g.patternSources), len(g.index.literals), len(g.index.fallbackSources))
-		// Find patterns for "BEGIN RSA PRIVATE KEY"
-		for srcIdx, src := range g.patternSources {
-			if strings.Contains(src.Pattern, "BEGIN RSA") {
-				fmt.Printf("  FOUND src[%d] tmpl=%d pat=%q ext=%v\n", srcIdx, src.TemplateIdx, src.Pattern, src.IsExtractor)
-			}
-		}
-		// Check if literal exists
-		for j, lit := range g.index.literals {
-			if strings.Contains(lit, "begin rsa") {
-				fmt.Printf("  literal[%d]=%q → sources=%v\n", j, lit, g.index.literalToSources[j])
-			}
-		}
-	}
-}

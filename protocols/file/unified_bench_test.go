@@ -213,8 +213,8 @@ func BenchmarkFileResult_AllocVsPool(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			results := make([]fileResult, templateCount)
 			for j := range results {
-				results[j].matcherHits = make(map[int][]string)
-				results[j].extractorHits = make(map[int]map[string]struct{})
+				results[j].matcherHits = make(map[int][]matchHit)
+				results[j].extractorHits = make(map[int][]matchHit)
 			}
 			_ = results
 		}
@@ -224,8 +224,8 @@ func BenchmarkFileResult_AllocVsPool(b *testing.B) {
 		New: func() interface{} {
 			results := make([]fileResult, templateCount)
 			for j := range results {
-				results[j].matcherHits = make(map[int][]string)
-				results[j].extractorHits = make(map[int]map[string]struct{})
+				results[j].matcherHits = make(map[int][]matchHit)
+				results[j].extractorHits = make(map[int][]matchHit)
 			}
 			return results
 		},
