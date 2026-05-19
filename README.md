@@ -42,6 +42,12 @@ found -i ~/projects -o json -s results.json
 # Use custom template files
 found -i ~/projects -t my-rules.yaml -t more-rules/
 
+# Filter by template ID
+found -i ~/projects --id private-key --id credential-exposure
+
+# Exclude specific templates
+found -i ~/projects --exclude-id noisy-rule --etags experimental
+
 # List available templates
 found --list
 ```
@@ -58,8 +64,12 @@ found [OPTIONS] -i <target>
 |------|-------|-------------|
 | `--input` | `-i` | Target file or directory to scan |
 | `--template` | `-t` | Template file or directory path (can specify multiple) |
+| `--exclude-template` | | Template file or directory to exclude |
 | `--category` | `-c` | Builtin template categories (default: `keys`) |
-| `--tags` | | Filter templates by tags |
+| `--id` | | Filter templates by ID (can specify multiple) |
+| `--exclude-id` | | Exclude templates by ID |
+| `--tags` | | Include only templates matching these tags |
+| `--etags` | | Exclude templates matching these tags |
 
 ### Output Options
 
