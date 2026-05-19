@@ -14,6 +14,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// EmbeddedTemplateLoader is set by main to provide built-in templates.
+type EmbeddedTemplateLoader interface {
+	ListCategories() []string
+	FilesByCategory(cat string) map[string][]byte
+	ReadFile(name string) ([]byte, error)
+}
+
+var Embedded EmbeddedTemplateLoader
+
 const banner = `
    ____                  __
   / __/__  __ _____  ___/ /
@@ -193,12 +202,30 @@ func loadTemplates(opts *Options) ([]*templates.Template, error) {
 	}
 
 	if len(opts.Templates) == 0 {
-		for _, cat := range opts.Categories {
-			catDir := filepath.Join(opts.TemplateDir, cat)
-			if _, err := os.Stat(catDir); os.IsNotExist(err) {
-				return nil, fmt.Errorf("category directory not found: %s", catDir)
+		loaded := false
+		if Embedded != nil {
+			for _, cat := range opts.Categories {
+				files := Embedded.FilesByCategory(cat)
+				if len(files) > 0 {
+					for name, data := range files {
+						tmpl, err := parseTemplate(name, data, execOpts)
+						if err != nil {
+							continue
+						}
+						tmpls = append(tmpls, tmpl)
+					}
+					loaded = true
+				}
 			}
-			loadFiltered(catDir)
+		}
+		if !loaded {
+			for _, cat := range opts.Categories {
+				catDir := filepath.Join(opts.TemplateDir, cat)
+				if _, err := os.Stat(catDir); os.IsNotExist(err) {
+					return nil, fmt.Errorf("category directory not found: %s (use -t to specify template path)", catDir)
+				}
+				loadFiltered(catDir)
+			}
 		}
 	}
 
@@ -243,15 +270,19 @@ func loadSingleTemplate(path string, execOpts *protocols.ExecuterOptions) (*temp
 	if err != nil {
 		return nil, err
 	}
+	return parseTemplate(path, data, execOpts)
+}
+
+func parseTemplate(name string, data []byte, execOpts *protocols.ExecuterOptions) (*templates.Template, error) {
 	var tmpl templates.Template
 	if err := yaml.Unmarshal(data, &tmpl); err != nil {
-		return nil, fmt.Errorf("parse %s: %v", path, err)
+		return nil, fmt.Errorf("parse %s: %v", name, err)
 	}
 	if len(tmpl.RequestsFile) == 0 {
-		return nil, fmt.Errorf("no file requests in %s", path)
+		return nil, fmt.Errorf("no file requests in %s", name)
 	}
 	if err := tmpl.Compile(execOpts); err != nil {
-		return nil, fmt.Errorf("compile %s: %v", path, err)
+		return nil, fmt.Errorf("compile %s: %v", name, err)
 	}
 	return &tmpl, nil
 }
@@ -322,40 +353,64 @@ func parseSeverityFilter(s string) map[string]bool {
 }
 
 func listTemplates(opts *Options) error {
-	paths := opts.Templates
-	if len(paths) == 0 {
-		for _, cat := range opts.Categories {
-			paths = append(paths, filepath.Join(opts.TemplateDir, cat))
+	logs.Log.Console("Available templates:\n\n")
+
+	if len(opts.Templates) > 0 {
+		for _, path := range opts.Templates {
+			info, err := os.Stat(path)
+			if err != nil {
+				logs.Log.Warnf("template not found: %s", path)
+				continue
+			}
+			if !info.IsDir() {
+				printTemplateInfoFromFile(path)
+				continue
+			}
+			filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
+					return nil
+				}
+				printTemplateInfoFromFile(p)
+				return nil
+			})
 		}
+		return nil
 	}
 
-	logs.Log.Console("Available templates:\n\n")
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			logs.Log.Warnf("template not found: %s", path)
-			continue
+	// List from embedded templates
+	if Embedded != nil {
+		for _, cat := range opts.Categories {
+			files := Embedded.FilesByCategory(cat)
+			for _, data := range files {
+				printTemplateInfoFromData(data)
+			}
 		}
-		if !info.IsDir() {
-			printTemplateInfo(path)
-			continue
-		}
-		filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		return nil
+	}
+
+	// Fallback to filesystem
+	for _, cat := range opts.Categories {
+		catDir := filepath.Join(opts.TemplateDir, cat)
+		filepath.Walk(catDir, func(p string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
 				return nil
 			}
-			printTemplateInfo(p)
+			printTemplateInfoFromFile(p)
 			return nil
 		})
 	}
 	return nil
 }
 
-func printTemplateInfo(path string) {
+func printTemplateInfoFromFile(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
+	printTemplateInfoFromData(data)
+}
+
+func printTemplateInfoFromData(data []byte) {
 	var tmpl templates.Template
 	if yaml.Unmarshal(data, &tmpl) != nil {
 		return

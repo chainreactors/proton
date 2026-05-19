@@ -9,6 +9,13 @@ import (
 )
 
 func main() {
+	efs, err := newEmbeddedFS()
+	if err != nil {
+		logs.Log.Warnf("failed to load embedded templates: %v", err)
+	} else {
+		cmd.Embedded = efs
+	}
+
 	var opts cmd.Options
 	parser := flags.NewParser(&opts, flags.Default)
 	parser.Name = "found"
@@ -17,14 +24,12 @@ func main() {
 Examples:
   found -i ~/projects                        Scan with default key templates
   found -i ~/projects -c keys,logs           Scan with keys + logs templates
-  found -i ~/projects --text-only            Skip binary files (faster)
   found -i ~/projects --severity high        Only show high severity findings
   found -i ~/projects -o json -s out.json    Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file
-  found --list                               List available templates
-  found --list -c logs                       List templates in logs category`
+  found --list                               List available templates`
 
-	_, err := parser.Parse()
+	_, err = parser.Parse()
 	if err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
 			os.Exit(0)
