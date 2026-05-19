@@ -90,7 +90,7 @@ func buildACIndex(extractor *operators.Extractor) *acIndex {
 	builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
 		AsciiCaseInsensitive: true,
 		MatchOnlyWholeWords:  false,
-		MatchKind:            ahocorasick.StandardMatch,
+		MatchKind:            ahocorasick.LeftMostLongestMatch,
 		DFA:                  true,
 	})
 	ac := builder.Build(keywords)
