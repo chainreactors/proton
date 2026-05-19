@@ -7,24 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/chainreactors/logs"
 )
 
-const banner = `
-   ____                  __
-  / __/__  __ _____  ___/ /
- / _// _ \/ // / _ \/ _  /
-/_/  \___/\_,_/_//_/\_,_/  v0.1.0
-`
-
 type Finding struct {
-	TemplateID   string            `json:"template-id"`
-	TemplateName string            `json:"template-name"`
-	Severity     string            `json:"severity"`
-	FilePath     string            `json:"file"`
-	MatcherName  string            `json:"matcher-name,omitempty"`
-	MatchedAt    string            `json:"matched-at,omitempty"`
-	Matches      map[string]string `json:"matches,omitempty"`
-	Extracts     []string          `json:"extracts,omitempty"`
+	TemplateID   string              `json:"template-id"`
+	TemplateName string              `json:"template-name"`
+	Severity     string              `json:"severity"`
+	FilePath     string              `json:"file"`
+	MatcherName  string              `json:"matcher-name,omitempty"`
+	Matches      map[string][]string `json:"matches,omitempty"`
+	Extracts     []string            `json:"extracts,omitempty"`
 }
 
 type outputWriter struct {
@@ -58,11 +52,28 @@ func (o *outputWriter) WriteFinding(f Finding) {
 			f.TemplateName, marker, f.TemplateID, relPath)
 	}
 
-	for name, val := range f.Matches {
-		if len(val) > 120 {
-			val = val[:120] + "..."
+	printed := 0
+	for name, vals := range f.Matches {
+		for _, val := range vals {
+			if len(val) > 120 {
+				val = val[:120] + "..."
+			}
+			fmt.Fprintf(o.w, "   [%s] %s\n", name, val)
+			printed++
+			if printed >= 5 {
+				break
+			}
 		}
-		fmt.Fprintf(o.w, "   [%s] %s\n", name, val)
+		if printed >= 5 {
+			total := 0
+			for _, v := range f.Matches {
+				total += len(v)
+			}
+			if total > 5 {
+				fmt.Fprintf(o.w, "   ... +%d more matches\n", total-5)
+			}
+			break
+		}
 	}
 
 	for i, e := range f.Extracts {
@@ -95,20 +106,16 @@ func severityMarker(s string) string {
 	}
 }
 
-func printBanner(w io.Writer) {
-	fmt.Fprint(w, banner)
-}
-
-func printSummary(w io.Writer, tmplCount int, findingCount int, elapsed time.Duration, sevCount map[string]int) {
-	fmt.Fprintln(w, strings.Repeat("─", 60))
-	fmt.Fprintf(w, "Templates: %d | Time: %s | Findings: %d\n", tmplCount, elapsed.Round(time.Millisecond), findingCount)
+func printSummary(tmplCount int, findingCount int, elapsed time.Duration, sevCount map[string]int) {
+	logs.Log.Console(strings.Repeat("─", 60) + "\n")
+	logs.Log.Consolef("Templates: %d | Time: %s | Findings: %d\n", tmplCount, elapsed.Round(time.Millisecond), findingCount)
 	if len(sevCount) > 0 {
-		fmt.Fprint(w, "Severity: ")
+		var parts []string
 		for _, s := range []string{"critical", "high", "medium", "low", "info"} {
 			if c, ok := sevCount[s]; ok {
-				fmt.Fprintf(w, "%s=%d ", s, c)
+				parts = append(parts, fmt.Sprintf("%s=%d", s, c))
 			}
 		}
-		fmt.Fprintln(w)
+		logs.Log.Consolef("Severity: %s\n", strings.Join(parts, " "))
 	}
 }

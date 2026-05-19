@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/chainreactors/found/cmd"
+	"github.com/chainreactors/logs"
 	"github.com/jessevdk/go-flags"
 )
 
@@ -33,7 +33,7 @@ Examples:
 	}
 
 	if err := cmd.Run(&opts); err != nil {
-		fmt.Fprintf(os.Stderr, "[ERR] %v\n", err)
+		logs.Log.Errorf("%v", err)
 		os.Exit(1)
 	}
 }

@@ -7,11 +7,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/protocols/file"
 	"github.com/chainreactors/proton/templates"
 	"gopkg.in/yaml.v3"
 )
+
+const banner = `
+   ____                  __
+  / __/__  __ _____  ___/ /
+ / _// _ \/ // / _ \/ _  /
+/_/  \___/\_,_/_//_/\_,_/  v0.1.0
+`
 
 func Run(opts *Options) error {
 	if opts.List {
@@ -50,13 +58,13 @@ func Run(opts *Options) error {
 	}
 
 	if !opts.Quiet && outputFormat == "text" {
-		printBanner(out)
-		mode := " | TextOnly"
+		logs.Log.Console(banner)
+		mode := "TextOnly"
 		if opts.Bin {
-			mode = " | Binary: on"
+			mode = "Binary: on"
 		}
-		fmt.Fprintf(out, "[INF] Loaded %d templates | Target: %s%s\n", len(tmpls), opts.Input, mode)
-		fmt.Fprintf(out, "[INF] Scanning...\n\n")
+		logs.Log.Infof("Loaded %d templates | Target: %s | %s", len(tmpls), opts.Input, mode)
+		logs.Log.Infof("Scanning...")
 	}
 
 	writer := newOutputWriter(outputFormat, out, opts.Input)
@@ -95,12 +103,10 @@ func Run(opts *Options) error {
 		}
 		if uf.Result != nil {
 			if len(uf.Result.Matches) > 0 {
-				f.Matches = make(map[string]string)
-				for name, vals := range uf.Result.Matches {
-					if len(vals) > 0 {
-						f.MatcherName = name
-						f.Matches[name] = strings.Join(vals, ", ")
-					}
+				f.Matches = uf.Result.Matches
+				for name := range uf.Result.Matches {
+					f.MatcherName = name
+					break
 				}
 			}
 			f.Extracts = append(f.Extracts, uf.Result.OutputExtracts...)
@@ -128,11 +134,11 @@ func Run(opts *Options) error {
 
 	elapsed := time.Since(start)
 	if !opts.Quiet && outputFormat == "text" {
-		printSummary(out, len(tmpls), findingCount, elapsed, sevCount)
+		printSummary(len(tmpls), findingCount, elapsed, sevCount)
 	}
 
 	if saveFile != nil && !opts.Quiet {
-		fmt.Fprintf(os.Stderr, "[INF] Results saved to %s\n", opts.SaveFile)
+		logs.Log.Infof("Results saved to %s", opts.SaveFile)
 	}
 
 	return nil
@@ -310,12 +316,11 @@ func listTemplates(opts *Options) error {
 		}
 	}
 
-	fmt.Println("Available templates:")
-	fmt.Println()
+	logs.Log.Console("Available templates:\n\n")
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "not found: %s\n", path)
+			logs.Log.Warnf("template not found: %s", path)
 			continue
 		}
 		if !info.IsDir() {
