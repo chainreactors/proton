@@ -181,7 +181,6 @@ func Run(opts *Options) error {
 	if opts.Collect != "" && len(allFindings) > 0 {
 		copts := collectOpts{
 			ZipPath:  opts.Collect,
-			Password: opts.Key,
 			BaseDir:  baseDir,
 			KeepTree: opts.CollectTree,
 			Findings: allFindings,

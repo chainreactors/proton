@@ -1,4 +1,4 @@
-//go:generate go run chainreactors-templates/templates_gen.go -t chainreactors-templates -o pkg/templates.go -need found
+//go:generate go run templates/templates_gen.go -t templates -o pkg/templates.go -need found -embed
 package main
 
 import (
@@ -18,7 +18,7 @@ func main() {
 Examples:
   found -i ~/projects                        Scan with default key templates
   found --auto                               Auto-detect OS and scan sensitive dirs
-  found --auto --collect findings.zip -k pw  Auto-scan and package results
+  found --auto --collect findings.zip         Auto-scan and package results
   found -i ~/projects --severity high        Only show high severity findings
   found -i ~/projects -j -s out.json         Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file

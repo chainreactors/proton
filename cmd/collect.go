@@ -10,19 +10,16 @@ import (
 	"strings"
 
 	"github.com/chainreactors/logs"
-	ezip "github.com/yeka/zip"
 )
 
 type collectOpts struct {
 	ZipPath  string
-	Password string
 	BaseDir  string
 	KeepTree bool
 	Findings []Finding
 }
 
 func collectFiles(opts collectOpts) error {
-	// Deduplicate file paths, resolve archive internal paths
 	pathSet := make(map[string]bool)
 	for _, f := range opts.Findings {
 		pathSet[resolveFilePath(f.FilePath)] = true
@@ -32,30 +29,12 @@ func collectFiles(opts collectOpts) error {
 		paths = append(paths, p)
 	}
 
-	// Build zip name mapping
 	nameMap := buildNameMap(paths, opts.BaseDir, opts.KeepTree)
-
-	// Generate findings index JSON
 	indexData, _ := json.MarshalIndent(opts.Findings, "", "  ")
 
-	var fileCount int
-	var err error
-	if opts.Password != "" {
-		fileCount, err = writeEncrypted(opts.ZipPath, opts.Password, paths, nameMap, indexData)
-	} else {
-		fileCount, err = writePlain(opts.ZipPath, paths, nameMap, indexData)
-	}
+	f, err := os.Create(opts.ZipPath)
 	if err != nil {
 		return err
-	}
-	logs.Log.Infof("Collected %d files to %s", fileCount, opts.ZipPath)
-	return nil
-}
-
-func writePlain(zipPath string, paths []string, nameMap map[string]string, indexData []byte) (int, error) {
-	f, err := os.Create(zipPath)
-	if err != nil {
-		return 0, err
 	}
 	defer f.Close()
 
@@ -74,32 +53,9 @@ func writePlain(zipPath string, paths []string, nameMap map[string]string, index
 		}
 		count++
 	}
-	return count, nil
-}
 
-func writeEncrypted(zipPath, password string, paths []string, nameMap map[string]string, indexData []byte) (int, error) {
-	f, err := os.Create(zipPath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	zw := ezip.NewWriter(f)
-	defer zw.Close()
-
-	w, _ := zw.Encrypt("findings.json", password, ezip.AES256Encryption)
-	w.Write(indexData)
-
-	count := 0
-	for _, path := range paths {
-		zipName := nameMap[path]
-		if err := addFileToEncryptedZip(zw, path, zipName, password); err != nil {
-			logs.Log.Warnf("collect: skip %s: %v", zipName, err)
-			continue
-		}
-		count++
-	}
-	return count, nil
+	logs.Log.Infof("Collected %d files to %s", count, opts.ZipPath)
+	return nil
 }
 
 func addFileToZip(zw *zip.Writer, filePath, zipName string) error {
@@ -109,20 +65,6 @@ func addFileToZip(zw *zip.Writer, filePath, zipName string) error {
 	}
 	defer src.Close()
 	w, err := zw.Create(zipName)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(w, src)
-	return err
-}
-
-func addFileToEncryptedZip(zw *ezip.Writer, filePath, zipName, password string) error {
-	src, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-	w, err := zw.Encrypt(zipName, password, ezip.AES256Encryption)
 	if err != nil {
 		return err
 	}
@@ -155,7 +97,6 @@ func buildNameMap(paths []string, baseDir string, keepTree bool) map[string]stri
 		return nameMap
 	}
 
-	// Flat mode: basename with collision handling
 	used := make(map[string]int)
 	for _, p := range paths {
 		base := filepath.Base(p)

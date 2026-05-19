@@ -5,6 +5,10 @@ before:
     - go mod tidy
     - go generate ./...
 
+upx:
+  -
+    enabled: true
+
 builds:
   -
     main: .

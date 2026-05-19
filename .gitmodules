@@ -1,3 +1,3 @@
-[submodule "chainreactors-templates"]
-	path = chainreactors-templates
+[submodule "templates"]
+	path = templates
 	url = https://github.com/chainreactors/templates.git

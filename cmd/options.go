@@ -25,7 +25,6 @@ type OutputOptions struct {
 	SaveFile string `short:"s" long:"save" description:"save results to file"`
 	Collect     string `long:"collect" description:"collect matched files into a zip archive (e.g. --collect findings.zip)"`
 	CollectTree bool   `long:"collect-tree" description:"preserve directory structure in collect zip (default: flat)"`
-	Key         string `short:"k" long:"key" description:"password for the collect zip archive"`
 	Quiet    bool   `short:"q" long:"quiet" description:"only print findings, no banner or stats"`
 }
 
