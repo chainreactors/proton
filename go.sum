@@ -37,6 +37,8 @@ github.com/chainreactors/files v0.0.0-20231102192550-a652458cee26 h1:p+RrnAjk2Es
 github.com/chainreactors/files v0.0.0-20231102192550-a652458cee26/go.mod h1:/Xa9YXhjBlaC33JTD6ZTJFig6pcplak2IDcovf42/6A=
 github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9 h1:u3qAuV4/IY5lvE0utSl5w0p6MdTNpXYA2FJee93c21A=
 github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9/go.mod h1:6Mv6W70JrtL6VClulZhmMRZnoYpcTahcDTKLMNEjK0o=
+github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b h1:bX3sRTEkXUIyqD9zsywNItE/gt7vKQGZnRv8esMFaMI=
+github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b/go.mod h1:Gh/QvVFVB9Gt0OeUrPpKq+kORAIHOD2O5a8MbKmu2IY=
 github.com/charlievieth/fastwalk v1.0.14 h1:3Eh5uaFGwHZd8EGwTjJnSpBkfwfsak9h6ICgnWlhAyg=
 github.com/charlievieth/fastwalk v1.0.14/go.mod h1:diVcUreiU1aQ4/Wu3NbxxH4/KYdKpLDojrQ1Bb2KgNY=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=

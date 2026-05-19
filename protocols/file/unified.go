@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
@@ -85,9 +86,31 @@ type Finding struct {
 	Result       *operators.Result
 }
 
+type ScanStats struct {
+	Files    int64
+	Bytes    int64
+	Findings int64
+	Rules    int
+}
+
+func (s ScanStats) HumanBytes() string {
+	b := float64(s.Bytes)
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1fGB", b/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1fMB", b/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1fKB", b/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", s.Bytes)
+	}
+}
+
 type Scanner struct {
 	Groups         []*scanGroup
 	Options        *protocols.ExecuterOptions
+	Stats          ScanStats
 	fileResultPool sync.Pool
 }
 
@@ -169,7 +192,11 @@ func NewScanner(inputs []Rule, opts *protocols.ExecuterOptions) *Scanner {
 		group.index = buildPatternIndex(group.patternSources)
 		groups = append(groups, group)
 	}
-	return &Scanner{Groups: groups, Options: opts}
+	return &Scanner{
+		Groups:  groups,
+		Options: opts,
+		Stats:   ScanStats{Rules: len(inputs)},
+	}
 }
 
 func buildPatternIndex(sources []patternSource) *patternIndex {
@@ -349,6 +376,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 			for job := range jobCh {
 				findings := s.processFile(job.path, job.group)
 				if len(findings) > 0 {
+					atomic.AddInt64(&s.Stats.Findings, int64(len(findings)))
 					cbMu.Lock()
 					for _, f := range findings {
 						callback(f)
@@ -421,6 +449,9 @@ func (s *Scanner) processFile(path string, group *scanGroup) []Finding {
 	if size == 0 || size > defaultMaxReadSize {
 		return nil
 	}
+
+	atomic.AddInt64(&s.Stats.Files, 1)
+	atomic.AddInt64(&s.Stats.Bytes, size)
 
 	ext := strings.ToLower(filepath.Ext(path))
 	if _, ok := archiveDenyExts[ext]; ok {

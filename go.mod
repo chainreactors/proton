@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/chainreactors/neutron v0.0.0
+	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/gobwas/glob v0.2.3
@@ -53,5 +53,3 @@ require (
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
-
-replace github.com/chainreactors/neutron => ../neutron

@@ -1,7 +1,7 @@
 package templates
 
 import (
-	"github.com/chainreactors/proton/protocols/executer"
+	"github.com/chainreactors/neutron/protocols/executer"
 	"github.com/chainreactors/proton/protocols/file"
 )
 
