@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/chainreactors/logs"
+	"github.com/chainreactors/proton/protocols/file"
 )
 
 type Finding struct {
-	TemplateID   string              `json:"template-id"`
-	TemplateName string              `json:"template-name"`
-	Severity     string              `json:"severity"`
-	FilePath     string              `json:"file"`
-	MatcherName  string              `json:"matcher-name,omitempty"`
-	Matches      map[string][]string `json:"matches,omitempty"`
-	Extracts     []string            `json:"extracts,omitempty"`
+	TemplateID   string                    `json:"template-id"`
+	TemplateName string                    `json:"template-name"`
+	Severity     string                    `json:"severity"`
+	FilePath     string                    `json:"file"`
+	MatcherName  string                    `json:"matcher-name,omitempty"`
+	Matches      map[string][]file.MatchEvent `json:"matches,omitempty"`
+	Extracts     []file.MatchEvent         `json:"extracts,omitempty"`
 }
 
 type outputWriter struct {
@@ -52,39 +53,22 @@ func (o *outputWriter) WriteFinding(f Finding) {
 			f.TemplateName, marker, f.TemplateID, relPath)
 	}
 
-	printed := 0
-	for name, vals := range f.Matches {
-		for _, val := range vals {
-			if len(val) > 120 {
-				val = val[:120] + "..."
+	for name, events := range f.Matches {
+		for _, ev := range events {
+			val := ev.Value
+			if len(val) > 200 {
+				val = val[:200] + "..."
 			}
-			fmt.Fprintf(o.w, "   [%s] %s\n", name, val)
-			printed++
-			if printed >= 5 {
-				break
-			}
-		}
-		if printed >= 5 {
-			total := 0
-			for _, v := range f.Matches {
-				total += len(v)
-			}
-			if total > 5 {
-				fmt.Fprintf(o.w, "   ... +%d more matches\n", total-5)
-			}
-			break
+			fmt.Fprintf(o.w, "   [%s] [L%d] %s\n", name, ev.Line, val)
 		}
 	}
 
-	for i, e := range f.Extracts {
-		if len(e) > 120 {
-			e = e[:120] + "..."
+	for _, ev := range f.Extracts {
+		val := ev.Value
+		if len(val) > 200 {
+			val = val[:200] + "..."
 		}
-		fmt.Fprintf(o.w, "   %s\n", e)
-		if i >= 4 {
-			fmt.Fprintf(o.w, "   ... +%d more\n", len(f.Extracts)-5)
-			break
-		}
+		fmt.Fprintf(o.w, "   [L%d] %s\n", ev.Line, val)
 	}
 	fmt.Fprintln(o.w)
 }

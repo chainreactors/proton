@@ -100,16 +100,12 @@ func Run(opts *Options) error {
 			TemplateName: uf.TemplateName,
 			Severity:     uf.Severity,
 			FilePath:     uf.FilePath,
+			Matches:      uf.Matches,
+			Extracts:     uf.Extracts,
 		}
-		if uf.Result != nil {
-			if len(uf.Result.Matches) > 0 {
-				f.Matches = uf.Result.Matches
-				for name := range uf.Result.Matches {
-					f.MatcherName = name
-					break
-				}
-			}
-			f.Extracts = append(f.Extracts, uf.Result.OutputExtracts...)
+		for name := range uf.Matches {
+			f.MatcherName = name
+			break
 		}
 
 		if len(sevFilter) > 0 {
