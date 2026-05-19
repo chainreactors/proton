@@ -1,0 +1,3 @@
+[submodule "chainreactors-templates"]
+	path = chainreactors-templates
+	url = https://github.com/chainreactors/templates.git

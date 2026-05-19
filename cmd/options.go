@@ -15,6 +15,8 @@ type InputOptions struct {
 	ExcludeIDs       []string `long:"exclude-id" description:"exclude templates by ID (can specify multiple)"`
 	Tags             []string `long:"tags" description:"filter templates by tags (comma-separated in template)"`
 	ExcludeTags      []string `long:"etags" description:"exclude templates by tags"`
+	Expressions      []string `short:"e" long:"expression" description:"regex pattern to search directly (like ripgrep, can specify multiple)"`
+	ExtFilter        string   `long:"ext" description:"comma-separated file extensions for -e mode (e.g. .go,.py)"`
 }
 
 type OutputOptions struct {
@@ -28,6 +30,7 @@ type OutputOptions struct {
 }
 
 type ScanOptions struct {
+	Auto        bool   `long:"auto" description:"auto-detect OS and scan common sensitive directories"`
 	Bin         bool   `long:"bin" description:"include binary files in scan (default: text-only)"`
 	Severity    string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
 	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`

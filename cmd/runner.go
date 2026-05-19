@@ -4,24 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/chainreactors/found/pkg"
 	"github.com/chainreactors/logs"
+	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/protocols/file"
 	"github.com/chainreactors/proton/templates"
 	"gopkg.in/yaml.v3"
 )
-
-// EmbeddedTemplateLoader is set by main to provide built-in templates.
-type EmbeddedTemplateLoader interface {
-	ListCategories() []string
-	FilesByCategory(cat string) map[string][]byte
-	ReadFile(name string) ([]byte, error)
-}
-
-var Embedded EmbeddedTemplateLoader
 
 const banner = `
    ____                  __
@@ -35,19 +29,30 @@ func Run(opts *Options) error {
 		return listTemplates(opts)
 	}
 
-	if opts.Input == "" {
-		return fmt.Errorf("target (-i) is required")
+	var targets []string
+	if opts.Auto {
+		autoTargets := loadAutoTargets()
+		targets = append(targets, autoTargets...)
 	}
-	if _, err := os.Stat(opts.Input); os.IsNotExist(err) {
-		return fmt.Errorf("target not found: %s", opts.Input)
+	if opts.Input != "" {
+		targets = append(targets, opts.Input)
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("target (-i) or --auto is required")
 	}
 
-	tmpls, err := loadTemplates(opts)
-	if err != nil {
-		return err
+	var tmpls []*templates.Template
+	hasExplicitTemplates := len(opts.Templates) > 0
+	expressionMode := len(opts.Expressions) > 0
+	if hasExplicitTemplates || !expressionMode {
+		var err error
+		tmpls, err = loadTemplates(opts)
+		if err != nil {
+			return err
+		}
 	}
-	if len(tmpls) == 0 {
-		return fmt.Errorf("no templates loaded")
+	if len(tmpls) == 0 && len(opts.Expressions) == 0 {
+		return fmt.Errorf("no templates loaded and no expressions specified")
 	}
 
 	out := os.Stdout
@@ -72,14 +77,21 @@ func Run(opts *Options) error {
 		if opts.Bin {
 			mode = "Binary: on"
 		}
-		logs.Log.Infof("Loaded %d templates | Target: %s | %s", len(tmpls), opts.Input, mode)
+		logs.Log.Infof("Loaded %d templates | Targets: %d | %s", len(tmpls), len(targets), mode)
+		for _, t := range targets {
+			logs.Log.Infof("  %s", t)
+		}
 		logs.Log.Infof("Scanning...")
 	}
 
-	writer := newOutputWriter(outputFormat, out, opts.Input)
+	baseDir := targets[0]
+	if opts.Input != "" {
+		baseDir = opts.Input
+	}
+	writer := newOutputWriter(outputFormat, out, baseDir)
 	var saveWriter *outputWriter
 	if saveFile != nil {
-		saveWriter = newOutputWriter(outputFormat, saveFile, opts.Input)
+		saveWriter = newOutputWriter(outputFormat, saveFile, baseDir)
 	}
 
 	sevFilter := parseSeverityFilter(opts.Severity)
@@ -103,8 +115,16 @@ func Run(opts *Options) error {
 		})
 	}
 
+	if len(opts.Expressions) > 0 {
+		rule, err := buildExpressionRule(opts.Expressions, opts.ExtFilter, execOpts)
+		if err != nil {
+			return fmt.Errorf("invalid expression: %v", err)
+		}
+		inputs = append(inputs, rule)
+	}
+
 	scanner := file.NewScanner(inputs, execOpts)
-	scanner.Scan(opts.Input, func(uf file.Finding) {
+	handleFinding := func(uf file.Finding) {
 		f := Finding{
 			TemplateID:   uf.TemplateID,
 			TemplateName: uf.TemplateName,
@@ -139,7 +159,11 @@ func Run(opts *Options) error {
 		if saveWriter != nil {
 			saveWriter.WriteFinding(f)
 		}
-	})
+	}
+
+	for _, target := range targets {
+		scanner.Scan(target, handleFinding)
+	}
 
 	elapsed := time.Since(start)
 	if !opts.Quiet && outputFormat == "text" {
@@ -154,7 +178,7 @@ func Run(opts *Options) error {
 		copts := collectOpts{
 			ZipPath:  opts.Collect,
 			Password: opts.Key,
-			BaseDir:  opts.Input,
+			BaseDir:  baseDir,
 			KeepTree: opts.CollectTree,
 			Findings: allFindings,
 		}
@@ -202,22 +226,7 @@ func loadTemplates(opts *Options) ([]*templates.Template, error) {
 	}
 
 	if len(opts.Templates) == 0 {
-		loaded := false
-		if Embedded != nil {
-			for _, cat := range opts.Categories {
-				files := Embedded.FilesByCategory(cat)
-				if len(files) > 0 {
-					for name, data := range files {
-						tmpl, err := parseTemplate(name, data, execOpts)
-						if err != nil {
-							continue
-						}
-						tmpls = append(tmpls, tmpl)
-					}
-					loaded = true
-				}
-			}
-		}
+		loaded := loadEmbeddedTemplates(&tmpls, opts.Categories, execOpts)
 		if !loaded {
 			for _, cat := range opts.Categories {
 				catDir := filepath.Join(opts.TemplateDir, cat)
@@ -378,11 +387,13 @@ func listTemplates(opts *Options) error {
 	}
 
 	// List from embedded templates
-	if Embedded != nil {
-		for _, cat := range opts.Categories {
-			files := Embedded.FilesByCategory(cat)
-			for _, data := range files {
-				printTemplateInfoFromData(data)
+	data := pkg.LoadConfig("found_keys")
+	if len(data) > 0 {
+		var pocs []interface{}
+		if yaml.Unmarshal(data, &pocs) == nil {
+			for _, poc := range pocs {
+				bs, _ := yaml.Marshal(poc)
+				printTemplateInfoFromData(bs)
 			}
 		}
 		return nil
@@ -423,4 +434,128 @@ func printTemplateInfoFromData(data []byte) {
 		sev = "unknown"
 	}
 	fmt.Printf("  %-8s %-35s %s\n", sev, tmpl.Id, tmpl.Info.Name)
+}
+
+func buildExpressionRule(expressions []string, extFilter string, execOpts *protocols.ExecuterOptions) (file.Rule, error) {
+	req := &file.Request{}
+
+	if extFilter != "" {
+		for _, ext := range strings.Split(extFilter, ",") {
+			ext = strings.TrimSpace(ext)
+			if ext != "" {
+				if !strings.HasPrefix(ext, ".") {
+					ext = "." + ext
+				}
+				req.Extensions = append(req.Extensions, ext)
+			}
+		}
+	} else {
+		req.Extensions = []string{"all"}
+	}
+
+	var extractors []*operators.Extractor
+	for _, expr := range expressions {
+		extractors = append(extractors, &operators.Extractor{
+			Type:  "regex",
+			Regex: []string{expr},
+		})
+	}
+	req.Extractors = extractors
+
+	if err := req.Compile(execOpts); err != nil {
+		return file.Rule{}, err
+	}
+
+	return file.Rule{
+		ID:       "cli-expression",
+		Name:     "CLI Expression",
+		Severity: "info",
+		Requests: []*file.Request{req},
+	}, nil
+}
+
+// loadEmbeddedTemplates loads templates from the embedded pkg.LoadConfig data.
+func loadEmbeddedTemplates(tmpls *[]*templates.Template, categories []string, execOpts *protocols.ExecuterOptions) bool {
+	data := pkg.LoadConfig("found_keys")
+	if len(data) == 0 {
+		return false
+	}
+	var pocs []interface{}
+	if err := yaml.Unmarshal(data, &pocs); err != nil {
+		return false
+	}
+	for _, poc := range pocs {
+		bs, err := yaml.Marshal(poc)
+		if err != nil {
+			continue
+		}
+		tmpl, err := parseTemplate("embedded", bs, execOpts)
+		if err != nil {
+			continue
+		}
+		*tmpls = append(*tmpls, tmpl)
+	}
+	return len(*tmpls) > 0
+}
+
+type autoProfile struct {
+	ID   string `yaml:"id"`
+	Info struct {
+		Name string `yaml:"name"`
+		OS   string `yaml:"os"`
+	} `yaml:"info"`
+	Paths []string `yaml:"paths"`
+}
+
+// loadAutoTargets reads auto scan profiles from embedded templates and
+// returns expanded, existing directory paths for the current OS.
+func loadAutoTargets() []string {
+	data := pkg.LoadConfig("found_auto")
+	if len(data) == 0 {
+		return nil
+	}
+	var profiles []autoProfile
+	if err := yaml.Unmarshal(data, &profiles); err != nil {
+		return nil
+	}
+
+	currentOS := runtime.GOOS
+	var paths []string
+	for _, p := range profiles {
+		if p.Info.OS != currentOS {
+			continue
+		}
+		for _, path := range p.Paths {
+			expanded := expandPath(path)
+			if expanded == "" {
+				continue
+			}
+			if _, err := os.Stat(expanded); err == nil {
+				paths = append(paths, expanded)
+			}
+		}
+	}
+
+	if len(paths) > 0 {
+		logs.Log.Infof("Auto-detected %d targets for %s", len(paths), currentOS)
+	}
+	return paths
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return filepath.Join(home, path[2:])
+	}
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return home
+	}
+	return os.ExpandEnv(path)
 }
