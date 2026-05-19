@@ -758,9 +758,11 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 			hasMatch = !hasMatch
 		}
 		if hasMatch {
-			if matcher.Name != "" {
-				resultMatches[matcher.Name] = hits
+			name := matcher.Name
+			if name == "" {
+				name = fmt.Sprintf("matcher-%d", idx)
 			}
+			resultMatches[name] = hits
 			matched = true
 			if matcherCondition == operators.ORCondition {
 				break
