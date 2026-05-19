@@ -3,12 +3,12 @@ project_name: found
 before:
   hooks:
     - go mod tidy
-    - go generate
+    - go generate ./...
 
 builds:
   -
     main: .
-    binary: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    binary: found
     goos:
       - windows
       - linux
@@ -22,7 +22,6 @@ builds:
     ldflags: "-s -w"
     flags:
       - -trimpath
-    no_unique_dist_dir: true
     env:
       - CGO_ENABLED=0
 
@@ -46,4 +45,4 @@ release:
   github:
     owner: chainreactors
     name: found
-  draft: true
+  draft: false

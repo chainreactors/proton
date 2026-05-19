@@ -90,9 +90,10 @@ func severityMarker(s string) string {
 	}
 }
 
-func printSummary(tmplCount int, findingCount int, elapsed time.Duration, sevCount map[string]int) {
+func printSummary(stats file.ScanStats, findingCount int, elapsed time.Duration, sevCount map[string]int) {
 	logs.Log.Console(strings.Repeat("─", 60) + "\n")
-	logs.Log.Consolef("Templates: %d | Time: %s | Findings: %d\n", tmplCount, elapsed.Round(time.Millisecond), findingCount)
+	logs.Log.Consolef("Rules: %d | Files: %d (%s) | Time: %s | Findings: %d\n",
+		stats.Rules, stats.Files, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
 	if len(sevCount) > 0 {
 		var parts []string
 		for _, s := range []string{"critical", "high", "medium", "low", "info"} {
