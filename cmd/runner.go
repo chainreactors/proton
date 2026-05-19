@@ -525,13 +525,11 @@ func loadAutoTargets() []string {
 		if p.Info.OS != currentOS {
 			continue
 		}
-		for _, path := range p.Paths {
-			expanded := expandPath(path)
-			if expanded == "" {
-				continue
-			}
-			if _, err := os.Stat(expanded); err == nil {
-				paths = append(paths, expanded)
+		for _, rawPath := range p.Paths {
+			for _, expanded := range expandPaths(rawPath) {
+				if _, err := os.Stat(expanded); err == nil {
+					paths = append(paths, expanded)
+				}
 			}
 		}
 	}
@@ -542,20 +540,34 @@ func loadAutoTargets() []string {
 	return paths
 }
 
-func expandPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
+// expandPaths expands ~ and environment variables, then resolves globs.
+func expandPaths(raw string) []string {
+	// Expand ~ to home directory
+	if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return ""
+			return nil
 		}
-		return filepath.Join(home, path[2:])
-	}
-	if strings.HasPrefix(path, "~") {
+		raw = filepath.Join(home, raw[2:])
+	} else if raw == "~" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return ""
+			return nil
 		}
-		return home
+		raw = home
 	}
-	return os.ExpandEnv(path)
+
+	// Expand environment variables (%VAR% on Windows, $VAR on Unix)
+	raw = os.ExpandEnv(raw)
+
+	// If contains glob characters, expand
+	if strings.ContainsAny(raw, "*?[") {
+		matches, err := filepath.Glob(raw)
+		if err != nil || len(matches) == 0 {
+			return nil
+		}
+		return matches
+	}
+
+	return []string{raw}
 }
