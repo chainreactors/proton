@@ -1,3 +1,4 @@
+//go:generate go run chainreactors-templates/templates_gen.go -t chainreactors-templates -o pkg/templates.go -need found
 package main
 
 import (
@@ -9,13 +10,6 @@ import (
 )
 
 func main() {
-	efs, err := newEmbeddedFS()
-	if err != nil {
-		logs.Log.Warnf("failed to load embedded templates: %v", err)
-	} else {
-		cmd.Embedded = efs
-	}
-
 	var opts cmd.Options
 	parser := flags.NewParser(&opts, flags.Default)
 	parser.Name = "found"
@@ -23,13 +17,14 @@ func main() {
 
 Examples:
   found -i ~/projects                        Scan with default key templates
-  found -i ~/projects -c keys,logs           Scan with keys + logs templates
+  found --auto                               Auto-detect OS and scan sensitive dirs
+  found --auto --collect findings.zip -k pw  Auto-scan and package results
   found -i ~/projects --severity high        Only show high severity findings
-  found -i ~/projects -o json -s out.json    Save JSON results to file
+  found -i ~/projects -j -s out.json         Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file
   found --list                               List available templates`
 
-	_, err = parser.Parse()
+	_, err := parser.Parse()
 	if err != nil {
 		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
 			os.Exit(0)
