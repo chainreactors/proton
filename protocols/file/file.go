@@ -197,6 +197,17 @@ var defaultSkipDirs = map[string]struct{}{
 	".idea":            {},
 	".vscode":          {},
 	".gradle":          {},
+	".cache":           {},
+	".local":           {},
+	".npm":             {},
+	".yarn":            {},
+	".cargo":           {},
+	".rustup":          {},
+	".goenv":           {},
+	".rbenv":           {},
+	".pyenv":           {},
+	".nvm":             {},
+	"site-packages":    {},
 }
 
 // defaultDenylist is the legacy flat list for backward compatibility.
