@@ -17,12 +17,14 @@ const banner = `
 `
 
 type Finding struct {
-	TemplateID   string   `json:"template_id"`
-	TemplateName string   `json:"template_name"`
-	Severity     string   `json:"severity"`
-	FilePath     string   `json:"file"`
-	Matched      string   `json:"matched,omitempty"`
-	Extracts     []string `json:"extracts,omitempty"`
+	TemplateID   string            `json:"template-id"`
+	TemplateName string            `json:"template-name"`
+	Severity     string            `json:"severity"`
+	FilePath     string            `json:"file"`
+	MatcherName  string            `json:"matcher-name,omitempty"`
+	MatchedAt    string            `json:"matched-at,omitempty"`
+	Matches      map[string]string `json:"matches,omitempty"`
+	Extracts     []string          `json:"extracts,omitempty"`
 }
 
 type outputWriter struct {
@@ -41,42 +43,55 @@ func (o *outputWriter) WriteFinding(f Finding) {
 		fmt.Fprintln(o.w, string(data))
 		return
 	}
+
 	relPath := f.FilePath
 	if r, err := filepath.Rel(o.baseDir, f.FilePath); err == nil {
 		relPath = r
 	}
-	sev := strings.ToUpper(f.Severity)
+
 	marker := severityMarker(f.Severity)
-	fmt.Fprintf(o.w, "[%s] %s (%s)\n", marker, f.TemplateID, f.TemplateName)
-	fmt.Fprintf(o.w, "       File: %s\n", relPath)
+	if f.MatcherName != "" {
+		fmt.Fprintf(o.w, "[%s] [%s] [%s] %s [%s]\n",
+			f.TemplateName, marker, f.TemplateID, relPath, f.MatcherName)
+	} else {
+		fmt.Fprintf(o.w, "[%s] [%s] [%s] %s\n",
+			f.TemplateName, marker, f.TemplateID, relPath)
+	}
+
+	for name, val := range f.Matches {
+		if len(val) > 120 {
+			val = val[:120] + "..."
+		}
+		fmt.Fprintf(o.w, "   [%s] %s\n", name, val)
+	}
+
 	for i, e := range f.Extracts {
 		if len(e) > 120 {
 			e = e[:120] + "..."
 		}
-		fmt.Fprintf(o.w, "       Match: %s\n", e)
-		if i >= 2 {
-			fmt.Fprintf(o.w, "       ... +%d more\n", len(f.Extracts)-3)
+		fmt.Fprintf(o.w, "   %s\n", e)
+		if i >= 4 {
+			fmt.Fprintf(o.w, "   ... +%d more\n", len(f.Extracts)-5)
 			break
 		}
 	}
-	_ = sev
 	fmt.Fprintln(o.w)
 }
 
 func severityMarker(s string) string {
 	switch s {
 	case "critical":
-		return "CRT"
+		return "critical"
 	case "high":
-		return "HIG"
+		return "high"
 	case "medium":
-		return "MED"
+		return "medium"
 	case "low":
-		return "LOW"
+		return "low"
 	case "info":
-		return "INF"
+		return "info"
 	default:
-		return "UNK"
+		return "unknown"
 	}
 }
 
@@ -85,7 +100,7 @@ func printBanner(w io.Writer) {
 }
 
 func printSummary(w io.Writer, tmplCount int, findingCount int, elapsed time.Duration, sevCount map[string]int) {
-	fmt.Fprintln(w, strings.Repeat("─", 50))
+	fmt.Fprintln(w, strings.Repeat("─", 60))
 	fmt.Fprintf(w, "Templates: %d | Time: %s | Findings: %d\n", tmplCount, elapsed.Round(time.Millisecond), findingCount)
 	if len(sevCount) > 0 {
 		fmt.Fprint(w, "Severity: ")

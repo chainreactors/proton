@@ -44,7 +44,12 @@ func Run(opts *Options) error {
 		saveFile = f
 	}
 
-	if !opts.Quiet && opts.Output == "text" {
+	outputFormat := opts.Output
+	if opts.JSON {
+		outputFormat = "json"
+	}
+
+	if !opts.Quiet && outputFormat == "text" {
 		printBanner(out)
 		mode := " | TextOnly"
 		if opts.Bin {
@@ -54,10 +59,10 @@ func Run(opts *Options) error {
 		fmt.Fprintf(out, "[INF] Scanning...\n\n")
 	}
 
-	writer := newOutputWriter(opts.Output, out, opts.Input)
+	writer := newOutputWriter(outputFormat, out, opts.Input)
 	var saveWriter *outputWriter
 	if saveFile != nil {
-		saveWriter = newOutputWriter(opts.Output, saveFile, opts.Input)
+		saveWriter = newOutputWriter(outputFormat, saveFile, opts.Input)
 	}
 
 	sevFilter := parseSeverityFilter(opts.Severity)
@@ -89,9 +94,16 @@ func Run(opts *Options) error {
 			FilePath:     uf.FilePath,
 		}
 		if uf.Result != nil {
-			for _, e := range uf.Result.OutputExtracts {
-				f.Extracts = append(f.Extracts, e)
+			if len(uf.Result.Matches) > 0 {
+				f.Matches = make(map[string]string)
+				for name, vals := range uf.Result.Matches {
+					if len(vals) > 0 {
+						f.MatcherName = name
+						f.Matches[name] = strings.Join(vals, ", ")
+					}
+				}
 			}
+			f.Extracts = append(f.Extracts, uf.Result.OutputExtracts...)
 		}
 
 		if len(sevFilter) > 0 {
@@ -115,7 +127,7 @@ func Run(opts *Options) error {
 	})
 
 	elapsed := time.Since(start)
-	if !opts.Quiet && opts.Output == "text" {
+	if !opts.Quiet && outputFormat == "text" {
 		printSummary(out, len(tmpls), findingCount, elapsed, sevCount)
 	}
 

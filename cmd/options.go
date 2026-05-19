@@ -19,6 +19,7 @@ type InputOptions struct {
 
 type OutputOptions struct {
 	Output   string `short:"o" long:"output" description:"output format: text, json" default:"text" choice:"text" choice:"json"`
+	JSON     bool   `short:"j" long:"json" description:"shorthand for -o json (jsonlines to stdout)"`
 	SaveFile string `short:"s" long:"save" description:"save results to file"`
 	Quiet    bool   `short:"q" long:"quiet" description:"only print findings, no banner or stats"`
 }
