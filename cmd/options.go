@@ -25,5 +25,4 @@ type ScanOptions struct {
 	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`
 	TemplateDir string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`
 	List        bool   `long:"list" description:"list available templates and exit"`
-	Profile     string `long:"profile" description:"enable CPU profiling, write to given file path (e.g. cpu.prof)"`
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime/pprof"
 
 	"github.com/chainreactors/found/cmd"
 	"github.com/jessevdk/go-flags"
@@ -31,16 +30,6 @@ Examples:
 			os.Exit(0)
 		}
 		os.Exit(1)
-	}
-
-	if opts.Profile != "" {
-		f, err := os.Create(opts.Profile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERR] cannot create profile: %v\n", err)
-			os.Exit(1)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
 	}
 
 	if err := cmd.Run(&opts); err != nil {
