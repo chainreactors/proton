@@ -2,12 +2,16 @@ package file
 
 import (
 	"fmt"
-	"github.com/chainreactors/proton/common"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/chainreactors/neutron/common"
+	"github.com/charlievieth/fastwalk"
+	"github.com/gobwas/glob"
 )
 
 // getInputPaths parses the specified input paths and returns a compiled
@@ -43,22 +47,79 @@ func (request *Request) getInputPaths(target string, callback func(string)) erro
 	return nil
 }
 
-// findGlobPathMatches returns the matched files from a glob path
+// splitGlobBase extracts the fixed directory prefix from a glob pattern.
+// It walks backward from the first glob metacharacter to find the last
+// path separator, splitting the pattern into a concrete base directory
+// and a relative glob expression.
+func splitGlobBase(pattern string) (baseDir, globPattern string) {
+	metaIdx := -1
+	for i, ch := range pattern {
+		if ch == '*' || ch == '?' || ch == '[' || ch == '{' {
+			metaIdx = i
+			break
+		}
+	}
+	if metaIdx < 0 {
+		// No glob characters – treat the whole thing as a literal path.
+		return filepath.Dir(pattern), filepath.Base(pattern)
+	}
+	// Find the last separator before the first metacharacter.
+	prefix := pattern[:metaIdx]
+	sepIdx := strings.LastIndex(prefix, string(os.PathSeparator))
+	if sepIdx < 0 {
+		return ".", pattern
+	}
+	return pattern[:sepIdx], pattern[sepIdx+1:]
+}
+
+// findGlobPathMatches returns the matched files from a glob path using
+// fastwalk for parallel directory traversal and gobwas/glob for pattern
+// matching (which also supports ** recursive wildcards).
 func (request *Request) findGlobPathMatches(absPath string, processed map[string]struct{}, callback func(string)) error {
-	matches, err := filepath.Glob(absPath)
+	baseDir, globPattern := splitGlobBase(absPath)
+
+	compiled, err := glob.Compile(globPattern, '/')
 	if err != nil {
-		return fmt.Errorf("wildcard found, but unable to glob: %s\n", err)
+		return fmt.Errorf("wildcard found, but unable to compile glob: %s", err)
 	}
-	for _, match := range matches {
-		if !request.validatePath(absPath, match, false) {
-			continue
+
+	var mu sync.Mutex
+	walkErr := fastwalk.Walk(nil, baseDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		if _, ok := processed[match]; !ok {
-			processed[match] = struct{}{}
-			callback(match)
+		if d.IsDir() {
+			if _, skip := defaultSkipDirs[d.Name()]; skip {
+				return filepath.SkipDir
+			}
+			return nil
 		}
-	}
-	return nil
+		if _, deny := alwaysDenyExts[filepath.Ext(path)]; deny {
+			return nil
+		}
+		rel, relErr := filepath.Rel(baseDir, path)
+		if relErr != nil {
+			return nil
+		}
+		// Use forward slashes for matching so the '/' separator works on all platforms.
+		rel = filepath.ToSlash(rel)
+		if !compiled.Match(rel) {
+			return nil
+		}
+		if !request.validatePath(absPath, path, false) {
+			return nil
+		}
+		mu.Lock()
+		if _, ok := processed[path]; !ok {
+			processed[path] = struct{}{}
+			mu.Unlock()
+			callback(path)
+		} else {
+			mu.Unlock()
+		}
+		return nil
+	})
+	return walkErr
 }
 
 // findFileMatches finds if a path is an absolute file. If the path
@@ -83,26 +144,33 @@ func (request *Request) findFileMatches(absPath string, processed map[string]str
 
 // findDirectoryMatches finds matches for templates from a directory
 func (request *Request) findDirectoryMatches(absPath string, processed map[string]struct{}, callback func(string)) error {
-	err := filepath.WalkDir(
-		absPath,
-		func(path string, d fs.DirEntry, err error) error {
-			// continue on errors
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if !request.validatePath(absPath, path, false) {
-				return nil
-			}
-			if _, ok := processed[path]; !ok {
-				callback(path)
-				processed[path] = struct{}{}
+	var mu sync.Mutex
+	err := fastwalk.Walk(nil, absPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if _, skip := defaultSkipDirs[d.Name()]; skip {
+				return filepath.SkipDir
 			}
 			return nil
-		},
-	)
+		}
+		if _, deny := alwaysDenyExts[filepath.Ext(path)]; deny {
+			return nil
+		}
+		if !request.validatePath(absPath, path, false) {
+			return nil
+		}
+		mu.Lock()
+		if _, ok := processed[path]; !ok {
+			processed[path] = struct{}{}
+			mu.Unlock()
+			callback(path)
+		} else {
+			mu.Unlock()
+		}
+		return nil
+	})
 	return err
 }
 
@@ -123,8 +191,6 @@ func (request *Request) validatePath(absPath, item string, inArchive bool) bool 
 		dataChunk  []byte
 	)
 	if !inArchive && request.MimeType {
-		// mime type check
-		// read first bytes to infer runtime type
 		fileExists = common.IsExist(item)
 		if fileExists {
 			dataChunk, _ = readChunk(item)
@@ -135,7 +201,7 @@ func (request *Request) validatePath(absPath, item string, inArchive bool) bool 
 	}
 
 	if matchingRule, ok := request.isInDenyList(absPath, item); ok {
-		common.NeutronLog.Warnf("Ignoring path %s due to denylist item %s\n", item, matchingRule)
+		common.Logger().Warnf("Ignoring path %s due to denylist item %s\n", item, matchingRule)
 		return false
 	}
 
@@ -146,7 +212,49 @@ func (request *Request) validatePath(absPath, item string, inArchive bool) bool 
 		}
 	}
 
+	// TextOnly mode: skip binary files via extension quick-path + content pre-check
+	if request.useTextOnly && !inArchive {
+		if !request.checkTextFile(item, extension, dataChunk) {
+			return false
+		}
+	}
+
 	return true
+}
+
+// checkTextFile determines whether a file is likely a text file.
+// Level 1 (quick, zero I/O): extension in textExtensions whitelist.
+// Level 2 (fallback): read first 1024 bytes and check for binary content.
+// cachedChunk may be non-nil if MIME-type checking already read the first bytes.
+func (request *Request) checkTextFile(item, extension string, cachedChunk []byte) bool {
+	if extension == "" {
+		return true
+	}
+	if _, ok := textExtensions[strings.ToLower(extension)]; ok {
+		return true
+	}
+	if len(cachedChunk) > 0 {
+		return isTextContent(cachedChunk)
+	}
+	chunk, err := readChunkPartial(item)
+	if err != nil || len(chunk) == 0 {
+		return true
+	}
+	return isTextContent(chunk)
+}
+
+func readChunkPartial(fileName string) ([]byte, error) {
+	f, err := os.Open(fileName)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	buf := make([]byte, 1024)
+	n, err := f.Read(buf)
+	if n == 0 {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 func (request *Request) isInDenyList(absPath, item string) (string, bool) {

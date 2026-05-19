@@ -2,16 +2,20 @@ package file
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
-	"github.com/chainreactors/proton/common"
-	"github.com/chainreactors/proton/operators"
-	"github.com/chainreactors/proton/protocols"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
+	"github.com/chainreactors/neutron/common"
+	"github.com/chainreactors/neutron/operators"
+	"github.com/chainreactors/neutron/protocols"
+	mmap "github.com/edsrzf/mmap-go"
 	"github.com/mholt/archiver"
 )
 
@@ -34,144 +38,156 @@ type FileMatch struct {
 
 var emptyResultErr = errors.New("Empty result")
 
+// processFile handles a single file path: detects archives and processes them
+// inline (sequential), or sends regular files to the worker pool channel.
+// This helper is used by ExecuteWithResults for archive paths that must be
+// handled in the callback goroutine.
+func (request *Request) processArchive(filePath string, input *protocols.ScanContext, previous map[string]interface{}, callback protocols.OutputEventCallback) {
+	archiveReader, _ := archiver.ByExtension(filePath)
+	if archiveReader == nil {
+		return
+	}
+	switch archiveInstance := archiveReader.(type) {
+	case archiver.Walker:
+		err := archiveInstance.Walk(filePath, func(file archiver.File) error {
+			if !request.validatePath("/", file.Name(), true) {
+				return nil
+			}
+			archiveFileName := filepath.Join(filePath, file.Name())
+			event, fileMatches, err := request.processReader(file.ReadCloser, archiveFileName, input.Input, file.Size(), previous)
+			if err != nil {
+				if errors.Is(err, emptyResultErr) {
+					return nil
+				}
+				common.Logger().Debugf("%s\n", err)
+				return err
+			}
+			defer file.Close()
+			dumpResponse(event, request.options, fileMatches, filePath)
+			callback(event)
+			return nil
+		})
+		if err != nil {
+			common.Logger().Debugf("%s\n", err)
+		}
+	case archiver.Decompressor:
+		file, err := os.Open(filePath)
+		if err != nil {
+			common.Logger().Debugf("%s\n", err)
+			return
+		}
+		defer file.Close()
+		fileStat, _ := file.Stat()
+		tmpFileOut, err := os.CreateTemp("", "")
+		if err != nil {
+			common.Logger().Debugf("%s\n", err)
+			return
+		}
+		defer tmpFileOut.Close()
+		defer os.RemoveAll(tmpFileOut.Name())
+		if err := archiveInstance.Decompress(file, tmpFileOut); err != nil {
+			common.Logger().Debugf("%s\n", err)
+			return
+		}
+		_ = tmpFileOut.Sync()
+		_, _ = tmpFileOut.Seek(0, 0)
+		event, fileMatches, err := request.processReader(tmpFileOut, filePath, input.Input, fileStat.Size(), previous)
+		if err != nil {
+			if !errors.Is(err, emptyResultErr) {
+				common.Logger().Debugf("%s\n", err)
+			}
+			return
+		}
+		dumpResponse(event, request.options, fileMatches, filePath)
+		callback(event)
+	}
+}
+
 // ExecuteWithResults executes the protocol requests and returns results instead of writing them.
 func (request *Request) ExecuteWithResults(input *protocols.ScanContext, dynamicValues, previous map[string]interface{}, callback protocols.OutputEventCallback) error {
-	//wg := sizedwaitgroup.NewGenerator(request.options.Options.BulkSize)
-	err := request.getInputPaths(input.Input, func(filePath string) {
-		//wg.Add()
-		func(filePath string) {
-			//defer wg.Done()
-			archiveReader, _ := archiver.ByExtension(filePath)
-			switch {
-			case archiveReader != nil:
-				switch archiveInstance := archiveReader.(type) {
-				case archiver.Walker:
-					err := archiveInstance.Walk(filePath, func(file archiver.File) error {
-						if !request.validatePath("/", file.Name(), true) {
-							return nil
-						}
-						// every new file in the compressed multi-file archive counts 1
-						//request.options.Progress.AddToTotal(1)
-						archiveFileName := filepath.Join(filePath, file.Name())
-						event, fileMatches, err := request.processReader(file.ReadCloser, archiveFileName, input.Input, file.Size(), previous)
-						if err != nil {
-							if errors.Is(err, emptyResultErr) {
-								// no matches but one file elaborated
-								//request.options.Progress.IncrementRequests()
-								return nil
-							}
-							common.NeutronLog.Errorf("%s\n", err)
-							// error while elaborating the file
-							//request.options.Progress.IncrementFailedRequestsBy(1)
-							return err
-						}
-						defer file.Close()
-						dumpResponse(event, request.options, fileMatches, filePath)
-						callback(event)
-						// file elaborated and matched
-						//request.options.Progress.IncrementRequests()
-						return nil
-					})
-					if err != nil {
-						common.NeutronLog.Errorf("%s\n", err)
-						return
-					}
-				case archiver.Decompressor:
-					// compressed archive - contains only one file => increments the counter by 1
-					//request.options.Progress.AddToTotal(1)
-					file, err := os.Open(filePath)
-					if err != nil {
-						common.NeutronLog.Errorf("%s\n", err)
-						// error while elaborating the file
-						//request.options.Progress.IncrementFailedRequestsBy(1)
-						return
-					}
-					defer file.Close()
-					fileStat, _ := file.Stat()
-					tmpFileOut, err := os.CreateTemp("", "")
-					if err != nil {
-						common.NeutronLog.Errorf("%s\n", err)
-						// error while elaborating the file
-						//request.options.Progress.IncrementFailedRequestsBy(1)
-						return
-					}
-					defer tmpFileOut.Close()
-					defer os.RemoveAll(tmpFileOut.Name())
-					if err := archiveInstance.Decompress(file, tmpFileOut); err != nil {
-						common.NeutronLog.Errorf("%s\n", err)
-						// error while elaborating the file
-						//request.options.Progress.IncrementFailedRequestsBy(1)
-						return
-					}
-					_ = tmpFileOut.Sync()
-					// rewind the file
-					_, _ = tmpFileOut.Seek(0, 0)
-					event, fileMatches, err := request.processReader(tmpFileOut, filePath, input.Input, fileStat.Size(), previous)
-					if err != nil {
-						if errors.Is(err, emptyResultErr) {
-							// no matches but one file elaborated
-							//request.options.Progress.IncrementRequests()
-							return
-						}
-						//gologger.Error().Msgf("%s\n", err)
-						// error while elaborating the file
-						//request.options.Progress.IncrementFailedRequestsBy(1)
-						return
-					}
-					dumpResponse(event, request.options, fileMatches, filePath)
-					callback(event)
-					// file elaborated and matched
-					//request.options.Progress.IncrementRequests()
-				}
-			default:
-				// normal file - increments the counter by 1
-				//request.options.Progress.AddToTotal(1)
+	numWorkers := runtime.NumCPU()
+	fileCh := make(chan string, numWorkers*2)
+
+	var cbMu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Start worker goroutines for regular (non-archive) file processing.
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for filePath := range fileCh {
 				event, fileMatches, err := request.processFile(filePath, input.Input, previous)
 				if err != nil {
-					if errors.Is(err, emptyResultErr) {
-						// no matches but one file elaborated
-						//request.options.Progress.IncrementRequests()
-						return
+					if !errors.Is(err, emptyResultErr) {
+						common.Logger().Debugf("%s\n", err)
 					}
-					common.NeutronLog.Errorf("%s\n", err)
-					// error while elaborating the file
-					//request.options.Progress.IncrementFailedRequestsBy(1)
-					return
+					continue
 				}
 				dumpResponse(event, request.options, fileMatches, filePath)
+				cbMu.Lock()
 				callback(event)
-				// file elaborated and matched
-				//request.options.Progress.IncrementRequests()
+				cbMu.Unlock()
 			}
-		}(filePath)
+		}()
+	}
+
+	err := request.getInputPaths(input.Input, func(filePath string) {
+		archiveReader, _ := archiver.ByExtension(filePath)
+		if archiveReader != nil {
+			// Archives need sequential access – process inline with mutex-protected callback.
+			request.processArchive(filePath, input, previous, func(event *protocols.InternalWrappedEvent) {
+				cbMu.Lock()
+				callback(event)
+				cbMu.Unlock()
+			})
+			return
+		}
+		// Regular file – send to worker pool.
+		fileCh <- filePath
 	})
 
-	//wg.Wait()
+	close(fileCh)
+	wg.Wait()
+
 	if err != nil {
-		//request.options.Output.Request(request.options.TemplatePath, input, request.Type().String(), err)
-		//request.options.Progress.IncrementFailedRequestsBy(1)
 		return fmt.Errorf("could not send file request, %s", err)
 	}
 	return nil
 }
 
 func (request *Request) processFile(filePath, input string, previousInternalEvent protocols.InternalEvent) (*protocols.InternalWrappedEvent, []FileMatch, error) {
+	info, err := os.Lstat(filePath)
+	if err != nil {
+		return nil, nil, emptyResultErr
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, emptyResultErr
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Could not open file path %s: %s\n", filePath, err)
+		return nil, nil, emptyResultErr
 	}
 	defer file.Close()
 
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, nil, fmt.Errorf("Could not stat file path %s: %s\n", filePath, err)
-	}
-	if stat.Size() >= request.maxSize {
+	size := info.Size()
+	if size >= request.maxSize {
 		maxSizeString := common.HumanSize(float64(request.maxSize))
-		common.NeutronLog.Debugf("Limiting %s processed data to %s bytes: exceeded max size\n", filePath, maxSizeString)
+		common.Logger().Debugf("Limiting %s processed data to %s bytes: exceeded max size\n", filePath, maxSizeString)
 	}
 
-	return request.processReader(file, filePath, input, stat.Size(), previousInternalEvent)
+	const mmapMinSize = 32 * 1024 // 32KB minimum for mmap benefit
+
+	if size >= mmapMinSize && size <= request.maxSize {
+		mapped, err := mmap.Map(file, mmap.RDONLY, 0)
+		if err == nil {
+			defer mapped.Unmap()
+			return request.processBytes(mapped, filePath, input, previousInternalEvent)
+		}
+	}
+
+	return request.processReader(file, filePath, input, size, previousInternalEvent)
 }
 
 func (request *Request) processReader(reader io.Reader, filePath, input string, totalBytes int64, previousInternalEvent protocols.InternalEvent) (*protocols.InternalWrappedEvent, []FileMatch, error) {
@@ -214,6 +230,114 @@ func (r *Request) MakeResultEvent(wrapped *protocols.InternalWrappedEvent) []*pr
 	return results
 }
 
+func (request *Request) processBytes(data []byte, filePath, input string, previous protocols.InternalEvent) (*protocols.InternalWrappedEvent, []FileMatch, error) {
+	fileMatches, opResult := request.findMatchesWithBytes(data, input, filePath, previous)
+	if opResult == nil && len(fileMatches) == 0 {
+		return nil, nil, emptyResultErr
+	}
+	return request.buildEvent(input, filePath, fileMatches, opResult, previous), fileMatches, nil
+}
+
+func (request *Request) findMatchesWithBytes(data []byte, input, filePath string, previous protocols.InternalEvent) ([]FileMatch, *operators.Result) {
+	var bytesCount, linesCount int
+	var fileMatches []FileMatch
+	var opResult *operators.Result
+
+	isAND := request.CompiledOperators.GetMatchersCondition() == operators.ANDCondition
+	if isAND {
+		lineContent := string(data)
+		dslMap := request.responseToDSLMap(lineContent, input, filePath)
+		for k, v := range previous {
+			dslMap[k] = v
+		}
+		discardEvent := protocols.CreateEvent(request, dslMap)
+		return []FileMatch{}, discardEvent.OperatorsResult
+	}
+
+	dslMap := request.responseToDSLMap("", input, filePath)
+	for k, v := range previous {
+		dslMap[k] = v
+	}
+
+	remaining := data
+	for len(remaining) > 0 {
+		idx := bytes.IndexByte(remaining, '\n')
+		var line []byte
+		if idx >= 0 {
+			line = remaining[:idx]
+			remaining = remaining[idx+1:]
+		} else {
+			line = remaining
+			remaining = nil
+		}
+
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+
+		if request.prefilter != nil && !request.prefilter.mayMatch(line) {
+			linesCount++
+			bytesCount += len(line) + 1
+			continue
+		}
+
+		lineContent := string(line)
+		n := len(lineContent)
+
+		dslMap["raw"] = lineContent
+		newOpResult := request.quickExecute(dslMap)
+		if newOpResult != nil {
+			if opResult == nil {
+				opResult = newOpResult
+			}
+			if newOpResult.Matched || newOpResult.Extracted {
+				if newOpResult.Extracts != nil {
+					for expr, extracts := range newOpResult.Extracts {
+						for _, extract := range extracts {
+							fileMatches = append(fileMatches, FileMatch{
+								Data:      extract,
+								Extract:   true,
+								Line:      linesCount + 1,
+								ByteIndex: bytesCount,
+								Expr:      expr,
+								Raw:       lineContent,
+							})
+						}
+					}
+				}
+				if newOpResult.Matches != nil {
+					for expr, matches := range newOpResult.Matches {
+						for _, match := range matches {
+							fileMatches = append(fileMatches, FileMatch{
+								Data:      match,
+								Match:     true,
+								Line:      linesCount + 1,
+								ByteIndex: bytesCount,
+								Expr:      expr,
+								Raw:       lineContent,
+							})
+						}
+					}
+				}
+				for _, outputExtract := range newOpResult.OutputExtracts {
+					fileMatches = append(fileMatches, FileMatch{
+						Data:      outputExtract,
+						Match:     true,
+						Line:      linesCount + 1,
+						ByteIndex: bytesCount,
+						Expr:      outputExtract,
+						Raw:       lineContent,
+					})
+				}
+			}
+		}
+
+		linesCount++
+		bytesCount += n + 1
+	}
+	return fileMatches, opResult
+}
+
 func (request *Request) findMatchesWithReader(reader io.Reader, input, filePath string, totalBytes int64, previous protocols.InternalEvent) ([]FileMatch, *operators.Result) {
 	var bytesCount, linesCount, wordsCount int
 	//isResponseDebug := request.options.Options.Debug || request.options.Options.DebugResponse
@@ -239,8 +363,21 @@ func (request *Request) findMatchesWithReader(reader io.Reader, input, filePath 
 
 	var fileMatches []FileMatch
 	var opResult *operators.Result
+
+	dslMap := request.responseToDSLMap("", input, filePath)
+	for k, v := range previous {
+		dslMap[k] = v
+	}
+
 	for scanner.Scan() {
 		lineContent := scanner.Text()
+
+		if request.prefilter != nil && !request.prefilter.mayMatch([]byte(lineContent)) {
+			linesCount += 1 + strings.Count(lineContent, "\n")
+			bytesCount += len(lineContent)
+			continue
+		}
+
 		n := len(lineContent)
 
 		// update counters
@@ -248,12 +385,8 @@ func (request *Request) findMatchesWithReader(reader io.Reader, input, filePath 
 		//processedBytes := common.BytesSize(float64(currentBytes))
 
 		//common.NeutronLog.Importantf("[%s] Processing file %s chunk %s/%s", request.options.TemplateID, filePath, processedBytes, totalBytesString)
-		dslMap := request.responseToDSLMap(lineContent, input, filePath)
-		for k, v := range previous {
-			dslMap[k] = v
-		}
-		discardEvent := protocols.CreateEvent(request, dslMap)
-		newOpResult := discardEvent.OperatorsResult
+		dslMap["raw"] = lineContent
+		newOpResult := request.quickExecute(dslMap)
 		if newOpResult != nil {
 			if opResult == nil {
 				opResult = newOpResult
@@ -355,7 +488,7 @@ func dumpResponse(event *protocols.InternalWrappedEvent, requestOptions *protoco
 	//			lineContent = hex.Dump([]byte(lineContent))
 	//		}
 	//		highlightedResponse := responsehighlighter.Highlight(event.OperatorsResult, lineContent, cliOptions.NoColor, hexDump)
-	//		common.NeutronLog.Debugf("[%s] Dumped match/extract file snippet for %s at line %d\n\n%s", requestOptions.TemplateID, filePath, fileMatch.Line, highlightedResponse)
+	//		common.Logger().Debugf("[%s] Dumped match/extract file snippet for %s at line %d\n\n%s", requestOptions.TemplateID, filePath, fileMatch.Line, highlightedResponse)
 	//	}
 	//}
 }

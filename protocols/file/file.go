@@ -2,9 +2,9 @@ package file
 
 import (
 	"fmt"
-	"github.com/chainreactors/proton/common"
-	"github.com/chainreactors/proton/operators"
-	"github.com/chainreactors/proton/protocols"
+	"github.com/chainreactors/neutron/common"
+	"github.com/chainreactors/neutron/operators"
+	"github.com/chainreactors/neutron/protocols"
 	"path/filepath"
 	"strings"
 
@@ -56,7 +56,13 @@ type Request struct {
 	//   enables mime types check
 	MimeType bool
 
+	// ScanAll forces scanning all file types even when TextOnly mode is enabled.
+	ScanAll bool `json:"scan-all,omitempty" yaml:"scan-all,omitempty"`
+
 	CompiledOperators *operators.Operators `json:"-" yaml:"-"`
+
+	prefilter          *linePrefilter
+	staticWordMatchers map[*operators.Matcher]bool
 
 	// cache any variables that may be needed for operation.
 	options             *protocols.ExecuterOptions
@@ -70,6 +76,45 @@ type Request struct {
 	NoRecursive bool `json:"no-recursive,omitempty" yaml:"no-recursive,omitempty" jsonschema:"title=do not perform recursion,description=Specifies whether to not do recursive checks if folders are provided"`
 
 	allExtensions bool
+	useTextOnly   bool
+}
+
+// textExtensions is a quick-path whitelist of known text file extensions.
+// Files with these extensions skip the 1024-byte binary pre-check.
+var textExtensions = map[string]struct{}{
+	".env": {}, ".ini": {}, ".conf": {}, ".cfg": {}, ".config": {},
+	".yaml": {}, ".yml": {}, ".toml": {}, ".json": {}, ".xml": {},
+	".properties": {}, ".plist": {}, ".htaccess": {},
+	".go": {}, ".py": {}, ".js": {}, ".ts": {}, ".java": {}, ".rb": {},
+	".php": {}, ".pl": {}, ".sh": {}, ".bash": {}, ".zsh": {},
+	".rs": {}, ".c": {}, ".cpp": {}, ".h": {}, ".cs": {}, ".swift": {},
+	".kt": {}, ".scala": {}, ".lua": {}, ".groovy": {}, ".r": {},
+	".html": {}, ".htm": {}, ".jsx": {}, ".tsx": {}, ".vue": {},
+	".css": {}, ".scss": {}, ".less": {},
+	".sql": {}, ".csv": {}, ".md": {}, ".txt": {}, ".log": {},
+	".rst": {}, ".tex": {},
+	".tf": {}, ".hcl": {},
+	".pem": {}, ".key": {}, ".crt": {}, ".cer": {}, ".pub": {},
+	".asc": {},
+	".npmrc": {}, ".pypirc": {}, ".gemrc": {},
+}
+
+// isTextContent checks whether data looks like text content by examining
+// for null bytes and the ratio of non-printable control characters.
+func isTextContent(data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	nonText := 0
+	for _, b := range data {
+		if b == 0 {
+			return false
+		}
+		if b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D {
+			nonText++
+		}
+	}
+	return float64(nonText)/float64(len(data)) < 0.30
 }
 
 // RequestPartDefinitions contains a mapping of request part definitions and their
@@ -85,11 +130,84 @@ var RequestPartDefinitions = map[string]string{
 	"raw,body,all,data": "Raw contains the raw file contents",
 }
 
-// defaultDenylist contains common extensions to exclude
-var defaultDenylist = []string{".3g2", ".3gp", ".arj", ".avi", ".axd", ".bmp", ".css", ".csv", ".deb", ".dll", ".doc", ".drv", ".eot", ".exe", ".flv", ".gif", ".gifv", ".h264", ".ico", ".iso", ".jar", ".jpeg", ".jpg", ".lock", ".m4a", ".m4v", ".map", ".mkv", ".mov", ".mp3", ".mp4", ".mpeg", ".mpg", ".msi", ".ogg", ".ogm", ".ogv", ".otf", ".pdf", ".pkg", ".png", ".ppt", ".psd", ".rm", ".rpm", ".svg", ".swf", ".sys", ".tif", ".tiff", ".ttf", ".vob", ".wav", ".webm", ".wmv", ".woff", ".woff2", ".xcf", ".xls", ".xlsx"}
+// alwaysDenyExts are pure media/font files with 0% chance of containing credentials.
+// Filtered at walk level before any path collection.
+var alwaysDenyExts = map[string]struct{}{
+	".png": {}, ".jpg": {}, ".jpeg": {}, ".gif": {}, ".gifv": {},
+	".bmp": {}, ".ico": {}, ".tif": {}, ".tiff": {}, ".psd": {},
+	".xcf": {}, ".svg": {}, ".webp": {},
+	".mp4": {}, ".avi": {}, ".mkv": {}, ".mov": {}, ".flv": {},
+	".wmv": {}, ".webm": {}, ".mpeg": {}, ".mpg": {}, ".3gp": {},
+	".3g2": {}, ".h264": {}, ".m4v": {}, ".ogv": {}, ".ogm": {},
+	".vob": {}, ".swf": {},
+	".mp3": {}, ".wav": {}, ".ogg": {}, ".m4a": {}, ".rm": {},
+	".ttf": {}, ".otf": {}, ".woff": {}, ".woff2": {}, ".eot": {},
+}
 
-// defaultArchiveDenyList contains common archive extensions to exclude
-var defaultArchiveDenyList = []string{".7z", ".apk", ".gz", ".rar", ".tar.gz", ".tar", ".zip"}
+// execDenyExts are executables/libraries. May contain embedded credentials.
+// Skipped by default; included when ScanAll is set on the request.
+var execDenyExts = map[string]struct{}{
+	".exe": {}, ".dll": {}, ".so": {}, ".dylib": {}, ".sys": {},
+	".drv": {}, ".msi": {}, ".deb": {}, ".rpm": {}, ".pkg": {},
+	".class": {}, ".pyc": {}, ".o": {}, ".a": {},
+}
+
+// archiveDenyExts are compressed archives. Skipped by default;
+// included when the Archive flag is set on the request.
+var archiveDenyExts = map[string]struct{}{
+	".zip": {}, ".tar": {}, ".gz": {}, ".7z": {}, ".rar": {},
+	".apk": {}, ".jar": {}, ".iso": {},
+}
+
+// docDenyExts are binary document formats.
+var docDenyExts = map[string]struct{}{
+	".pdf": {}, ".doc": {}, ".ppt": {}, ".xls": {}, ".xlsx": {},
+}
+
+// miscDenyExts are other files with no security audit value.
+var miscDenyExts = map[string]struct{}{
+	".lock": {}, ".map": {}, ".axd": {}, ".csv": {},
+}
+
+// defaultSkipDirs are directories with 0% audit value — skipped at walk level.
+// .git is NOT included: history may contain leaked credentials.
+var defaultSkipDirs = map[string]struct{}{
+	"node_modules":     {},
+	"bower_components": {},
+	"__pycache__":      {},
+	".tox":             {},
+	".eggs":            {},
+	".svn":             {},
+	".hg":              {},
+	".idea":            {},
+	".vscode":          {},
+	".gradle":          {},
+}
+
+// defaultDenylist is the legacy flat list for backward compatibility.
+// New code should use the categorized maps above.
+var defaultDenylist []string
+
+// defaultArchiveDenyList is kept for backward compatibility with existing callers.
+var defaultArchiveDenyList []string
+
+func init() {
+	for ext := range alwaysDenyExts {
+		defaultDenylist = append(defaultDenylist, ext)
+	}
+	for ext := range execDenyExts {
+		defaultDenylist = append(defaultDenylist, ext)
+	}
+	for ext := range docDenyExts {
+		defaultDenylist = append(defaultDenylist, ext)
+	}
+	for ext := range miscDenyExts {
+		defaultDenylist = append(defaultDenylist, ext)
+	}
+	for ext := range archiveDenyExts {
+		defaultArchiveDenyList = append(defaultArchiveDenyList, ext)
+	}
+}
 
 // GetID returns the unique ID of the request if any.
 func (request *Request) GetID() string {
@@ -100,12 +218,29 @@ func (request *Request) GetID() string {
 func (request *Request) Compile(options *protocols.ExecuterOptions) error {
 	if len(request.Matchers) > 0 || len(request.Extractors) > 0 {
 		compiled := &request.Operators
-		//compiled.ExcludeMatchers = options.ExcludeMatchers
-		//compiled.TemplateID = options.TemplateID
 		if err := compiled.Compile(); err != nil {
 			return fmt.Errorf("could not compile operators, %s", err)
 		}
 		request.CompiledOperators = compiled
+		request.prefilter = buildPrefilter(request.CompiledOperators)
+	}
+
+	// Identify static word matchers (no template expressions) so that
+	// Match() can use the fast matchWordsStatic path.
+	request.staticWordMatchers = make(map[*operators.Matcher]bool)
+	if request.CompiledOperators != nil {
+		for _, m := range request.CompiledOperators.Matchers {
+			if m.GetType() == operators.WordsMatcher {
+				isStatic := true
+				for _, w := range m.Words {
+					if strings.Contains(w, "{{") {
+						isStatic = false
+						break
+					}
+				}
+				request.staticWordMatchers[m] = isStatic
+			}
+		}
 	}
 
 	// By default, use default max size if not defined
@@ -142,6 +277,13 @@ func (request *Request) Compile(options *protocols.ExecuterOptions) error {
 	}
 	request.mimeTypesChecks = extractMimeTypes(request.Extensions)
 
+	// Determine TextOnly mode: enabled when the engine option is set,
+	// extensions is "all", and the template doesn't opt out via scan-all.
+	if options != nil && options.Options != nil && options.Options.TextOnly &&
+		request.allExtensions && !request.ScanAll {
+		request.useTextOnly = true
+	}
+
 	// process default denylist (extensions)
 	var denyList []string
 	if !request.Archive {
@@ -157,7 +299,6 @@ func (request *Request) Compile(options *protocols.ExecuterOptions) error {
 	}
 	for _, excludeItem := range request.DenyList {
 		request.denyList[excludeItem] = struct{}{}
-		// also add a cleaned version as the exclusion path can be dirty (eg. /a/b/c, /a/b/c/, a///b///c/../d)
 		request.denyList[filepath.Clean(excludeItem)] = struct{}{}
 	}
 	request.denyMimeTypesChecks = extractMimeTypes(request.DenyList)
