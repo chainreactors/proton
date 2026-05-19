@@ -7,8 +7,8 @@ toolchain go1.24.3
 require (
 	github.com/chainreactors/fingers v1.2.0
 	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
-	github.com/chainreactors/neutron v0.0.0
-	github.com/chainreactors/proton v0.0.0
+	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
+	github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e
 	github.com/chainreactors/utils v0.0.0-20260507101628-fd69d955ae21
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/yeka/zip v0.0.0-20231116150916-03d6312748a9
@@ -62,9 +62,4 @@ require (
 	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
-)
-
-replace (
-	github.com/chainreactors/neutron => ../neutron
-	github.com/chainreactors/proton => ../proton
 )

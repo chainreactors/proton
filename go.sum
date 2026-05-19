@@ -94,6 +94,11 @@ github.com/chainreactors/fingers v1.2.0/go.mod h1:owlti2VYK2YpnLqdZ1HWACK4upuyFg
 github.com/chainreactors/logs v0.0.0-20241030063019-8ca66a3ee307/go.mod h1:6Mv6W70JrtL6VClulZhmMRZnoYpcTahcDTKLMNEjK0o=
 github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9 h1:u3qAuV4/IY5lvE0utSl5w0p6MdTNpXYA2FJee93c21A=
 github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9/go.mod h1:6Mv6W70JrtL6VClulZhmMRZnoYpcTahcDTKLMNEjK0o=
+github.com/chainreactors/neutron v0.0.0-20260203032004-95c9e8431214/go.mod h1:CktNFh1I1sNwFI9Ml+t0X/uuEoO4eAW5Dmb/cuzV8BY=
+github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b h1:bX3sRTEkXUIyqD9zsywNItE/gt7vKQGZnRv8esMFaMI=
+github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b/go.mod h1:Gh/QvVFVB9Gt0OeUrPpKq+kORAIHOD2O5a8MbKmu2IY=
+github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e h1:LN2xopCqfwMa3nhs/7NxOoSQjVHiXcb1KwCG6dop8p8=
+github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e/go.mod h1:9jeNA6Z7HdAEZlIFOsUFCQmE4PrLsdG8eHEqZnDPHUE=
 github.com/chainreactors/utils v0.0.0-20240716182459-e85f2b01ee16/go.mod h1:LajXuvESQwP+qCMAvlcoSXppQCjuLlBrnQpu9XQ1HtU=
 github.com/chainreactors/utils v0.0.0-20250831165528-f06246b0f311/go.mod h1:LajXuvESQwP+qCMAvlcoSXppQCjuLlBrnQpu9XQ1HtU=
 github.com/chainreactors/utils v0.0.0-20260507101628-fd69d955ae21 h1:8Vf3BIolSLmZFeK8xYqKBDZi88g2iU9dtVIKohEFPW4=
@@ -452,6 +457,7 @@ github.com/wasilibs/go-re2 v1.10.0 h1:vQZEBYZOCA9jdBMmrO4+CvqyCj0x4OomXTJ4a5/urQ
 github.com/wasilibs/go-re2 v1.10.0/go.mod h1:k+5XqO2bCJS+QpGOnqugyfwC04nw0jaglmjrrkG8U6o=
 github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 h1:OvLBa8SqJnZ6P+mjlzc2K7PM22rRUPE1x32G9DTPrC4=
 github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52/go.mod h1:jMeV4Vpbi8osrE/pKUxRZkVaA0EX7NZN0A9/oRzgpgY=
+github.com/weppos/publicsuffix-go v0.15.1-0.20220329081811-9a40b608a236/go.mod h1:HYux0V0Zi04bHNwOHy4cXJVz/TQjYonnF6aoYhj+3QE=
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 h1:nIPpBwaJSVYIxUFsDv3M8ofmx9yWTog9BfvIu0q41lo=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8/go.mod h1:HUYIGzjTL3rfEspMxjDjgmT5uz5wzYJKVo23qUhYTos=
