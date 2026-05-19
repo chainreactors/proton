@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/chainreactors/found/pkg"
@@ -17,12 +18,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const Version = "v0.1.0"
+
 const banner = `
    ____                  __
   / __/__  __ _____  ___/ /
  / _// _ \/ // / _ \/ _  /
-/_/  \___/\_,_/_//_/\_,_/  v0.1.0
-`
+/_/  \___/\_,_/_//_/\_,_/  ` + Version + "\n"
 
 func init() {
 	loadFiltersFromEmbedded()
@@ -42,7 +44,7 @@ func Run(opts *Options) error {
 		targets = append(targets, opts.Input)
 	}
 	if len(targets) == 0 {
-		return fmt.Errorf("target (-i) or --auto is required")
+		return fmt.Errorf("target (-i) or --auto is required, run 'found --help' for usage")
 	}
 
 	var tmpls []*templates.Template
@@ -56,7 +58,7 @@ func Run(opts *Options) error {
 		}
 	}
 	if len(tmpls) == 0 && len(opts.Expressions) == 0 {
-		return fmt.Errorf("no templates loaded and no expressions specified")
+		return fmt.Errorf("no templates loaded — use -t to specify templates, -c for categories, or -e for regex")
 	}
 
 	out := os.Stdout
@@ -75,6 +77,12 @@ func Run(opts *Options) error {
 		outputFormat = "json"
 	}
 
+	useColor := isTTY(os.Stdout) && !opts.NoColor && outputFormat != "json"
+	showProgress := isTTY(os.Stderr) && !opts.Quiet && outputFormat == "text"
+	if useColor {
+		logs.Log.SetColor(true)
+	}
+
 	if !opts.Quiet && outputFormat == "text" {
 		logs.Log.Console(banner)
 		mode := "TextOnly"
@@ -85,17 +93,21 @@ func Run(opts *Options) error {
 		for _, t := range targets {
 			logs.Log.Infof("  %s", t)
 		}
-		logs.Log.Infof("Scanning...")
 	}
 
 	baseDir := targets[0]
 	if opts.Input != "" {
 		baseDir = opts.Input
 	}
-	writer := newOutputWriter(outputFormat, out, baseDir)
+	writer := newOutputWriter(outputFormat, out, baseDir, useColor)
 	var saveWriter *outputWriter
 	if saveFile != nil {
-		saveWriter = newOutputWriter(outputFormat, saveFile, baseDir)
+		saveWriter = newOutputWriter(outputFormat, saveFile, baseDir, false)
+	}
+
+	ignFilter := loadIgnoreFilter(targets, opts.IgnoreFiles)
+	if ignFilter != nil && !opts.Quiet && outputFormat == "text" {
+		logs.Log.Infof("Loaded %d ignore rules (post-scan suppression)", len(ignFilter.rules))
 	}
 
 	sevFilter := parseSeverityFilter(opts.Severity)
@@ -128,6 +140,12 @@ func Run(opts *Options) error {
 	}
 
 	scanner := file.NewScanner(inputs, execOpts)
+
+	stopProgress := func() {}
+	if showProgress {
+		stopProgress = startProgress(scanner)
+	}
+
 	handleFinding := func(uf file.Finding) {
 		f := Finding{
 			TemplateID:   uf.TemplateID,
@@ -154,10 +172,21 @@ func Run(opts *Options) error {
 		}
 		seen[key] = true
 
+		relPath := f.FilePath
+		if r, err := filepath.Rel(baseDir, f.FilePath); err == nil {
+			relPath = r
+		}
+		if ignFilter.shouldIgnore(f.TemplateID, relPath) {
+			return
+		}
+
 		findingCount++
 		sevCount[f.Severity]++
 		if opts.Collect != "" {
 			allFindings = append(allFindings, f)
+		}
+		if showProgress {
+			fmt.Fprint(os.Stderr, "\r\033[K")
 		}
 		writer.WriteFinding(f)
 		if saveWriter != nil {
@@ -169,9 +198,14 @@ func Run(opts *Options) error {
 		scanner.Scan(target, handleFinding)
 	}
 
+	stopProgress()
 	elapsed := time.Since(start)
 	if !opts.Quiet && outputFormat == "text" {
-		printSummary(scanner.Stats, findingCount, elapsed, sevCount)
+		suppressed := 0
+		if ignFilter != nil {
+			suppressed = ignFilter.suppressed
+		}
+		printSummary(scanner.Stats, findingCount, elapsed, sevCount, useColor, suppressed)
 	}
 
 	if saveFile != nil && !opts.Quiet {
@@ -364,8 +398,14 @@ func parseSeverityFilter(s string) map[string]bool {
 	return m
 }
 
+type templateInfo struct {
+	id       string
+	name     string
+	severity string
+}
+
 func listTemplates(opts *Options) error {
-	logs.Log.Console("Available templates:\n\n")
+	var infos []templateInfo
 
 	if len(opts.Templates) > 0 {
 		for _, path := range opts.Templates {
@@ -375,68 +415,91 @@ func listTemplates(opts *Options) error {
 				continue
 			}
 			if !info.IsDir() {
-				printTemplateInfoFromFile(path)
+				if ti := getTemplateInfoFromFile(path); ti != nil {
+					infos = append(infos, *ti)
+				}
 				continue
 			}
 			filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
 					return nil
 				}
-				printTemplateInfoFromFile(p)
+				if ti := getTemplateInfoFromFile(p); ti != nil {
+					infos = append(infos, *ti)
+				}
 				return nil
 			})
 		}
-		return nil
-	}
-
-	// List from embedded templates
-	data := pkg.LoadConfig("found_keys")
-	if len(data) > 0 {
+	} else if data := pkg.LoadConfig("found_keys"); len(data) > 0 {
 		var pocs []interface{}
 		if yaml.Unmarshal(data, &pocs) == nil {
 			for _, poc := range pocs {
 				bs, _ := yaml.Marshal(poc)
-				printTemplateInfoFromData(bs)
+				if ti := getTemplateInfoFromData(bs); ti != nil {
+					infos = append(infos, *ti)
+				}
 			}
 		}
-		return nil
+	} else {
+		for _, cat := range opts.Categories {
+			catDir := filepath.Join(opts.TemplateDir, cat)
+			filepath.Walk(catDir, func(p string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
+					return nil
+				}
+				if ti := getTemplateInfoFromFile(p); ti != nil {
+					infos = append(infos, *ti)
+				}
+				return nil
+			})
+		}
 	}
 
-	// Fallback to filesystem
-	for _, cat := range opts.Categories {
-		catDir := filepath.Join(opts.TemplateDir, cat)
-		filepath.Walk(catDir, func(p string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
-				return nil
-			}
-			printTemplateInfoFromFile(p)
-			return nil
-		})
+	useColor := isTTY(os.Stdout) && !opts.NoColor
+	logs.Log.Consolef("Available templates: %d\n\n", len(infos))
+
+	groups := map[string][]templateInfo{}
+	for _, ti := range infos {
+		groups[ti.severity] = append(groups[ti.severity], ti)
 	}
+
+	for _, sev := range []string{"critical", "high", "medium", "low", "info", "unknown"} {
+		list := groups[sev]
+		if len(list) == 0 {
+			continue
+		}
+		marker := severityMarker(sev, useColor)
+		logs.Log.Consolef("  [%s] (%d)\n", marker, len(list))
+		for _, t := range list {
+			fmt.Printf("    %-35s %s\n", t.id, t.name)
+		}
+		logs.Log.Console("\n")
+	}
+
 	return nil
 }
 
-func printTemplateInfoFromFile(path string) {
+func getTemplateInfoFromFile(path string) *templateInfo {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return nil
 	}
-	printTemplateInfoFromData(data)
+	return getTemplateInfoFromData(data)
 }
 
-func printTemplateInfoFromData(data []byte) {
+func getTemplateInfoFromData(data []byte) *templateInfo {
 	var tmpl templates.Template
 	if yaml.Unmarshal(data, &tmpl) != nil {
-		return
+		return nil
 	}
 	if len(tmpl.RequestsFile) == 0 {
-		return
+		return nil
 	}
 	sev := tmpl.Info.Severity
 	if sev == "" {
 		sev = "unknown"
 	}
-	fmt.Printf("  %-8s %-35s %s\n", sev, tmpl.Id, tmpl.Info.Name)
+	return &templateInfo{id: tmpl.Id, name: tmpl.Info.Name, severity: sev}
 }
 
 func buildExpressionRule(expressions []string, extFilter string, execOpts *protocols.ExecuterOptions) (file.Rule, error) {
@@ -599,6 +662,46 @@ func loadFiltersFromEmbedded() {
 	}
 
 	file.SetFilters(cfg)
+}
+
+func startProgress(scanner *file.Scanner) func() {
+	done := make(chan struct{})
+	start := time.Now()
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				files := atomic.LoadInt64(&scanner.Stats.Files)
+				bytes := atomic.LoadInt64(&scanner.Stats.Bytes)
+				findings := atomic.LoadInt64(&scanner.Stats.Findings)
+				elapsed := time.Since(start).Round(100 * time.Millisecond)
+				fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d files (%s) | %d findings | %s",
+					files, progressBytes(bytes), findings, elapsed)
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		fmt.Fprint(os.Stderr, "\r\033[K")
+	}
+}
+
+func progressBytes(b int64) string {
+	f := float64(b)
+	switch {
+	case f >= 1<<30:
+		return fmt.Sprintf("%.1fGB", f/(1<<30))
+	case f >= 1<<20:
+		return fmt.Sprintf("%.1fMB", f/(1<<20))
+	case f >= 1<<10:
+		return fmt.Sprintf("%.1fKB", f/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", b)
+	}
 }
 
 func toExtSet(items []string) map[string]struct{} {

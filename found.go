@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/chainreactors/found/cmd"
@@ -30,6 +31,11 @@ Examples:
 			os.Exit(0)
 		}
 		os.Exit(1)
+	}
+
+	if opts.Version {
+		fmt.Println("found " + cmd.Version)
+		os.Exit(0)
 	}
 
 	if err := cmd.Run(&opts); err != nil {

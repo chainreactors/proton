@@ -4,6 +4,7 @@ type Options struct {
 	InputOptions  `group:"Input Options"`
 	OutputOptions `group:"Output Options"`
 	ScanOptions   `group:"Scan Options"`
+	Version bool `long:"version" description:"print version and exit"`
 }
 
 type InputOptions struct {
@@ -17,6 +18,7 @@ type InputOptions struct {
 	ExcludeTags      []string `long:"etags" description:"exclude templates by tags"`
 	Expressions      []string `short:"e" long:"expression" description:"regex pattern to search directly (like ripgrep, can specify multiple)"`
 	ExtFilter        string   `long:"ext" description:"comma-separated file extensions for -e mode (e.g. .go,.py)"`
+	IgnoreFiles      []string `long:"ignore" description:"suppress reviewed findings via ignore rules (.foundignore.yaml)"`
 }
 
 type OutputOptions struct {
@@ -26,6 +28,7 @@ type OutputOptions struct {
 	Collect     string `long:"collect" description:"collect matched files into a zip archive (e.g. --collect findings.zip)"`
 	CollectTree bool   `long:"collect-tree" description:"preserve directory structure in collect zip (default: flat)"`
 	Quiet    bool   `short:"q" long:"quiet" description:"only print findings, no banner or stats"`
+	NoColor  bool   `long:"no-color" description:"disable colored output"`
 }
 
 type ScanOptions struct {
