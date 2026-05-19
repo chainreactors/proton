@@ -8,7 +8,7 @@ require (
 	github.com/chainreactors/fingers v1.2.0
 	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
 	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
-	github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e
+	github.com/chainreactors/proton v0.0.0-20260519163320-7b8294da1862
 	github.com/chainreactors/utils v0.0.0-20260507101628-fd69d955ae21
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/yeka/zip v0.0.0-20231116150916-03d6312748a9

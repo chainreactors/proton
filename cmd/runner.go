@@ -24,6 +24,10 @@ const banner = `
 /_/  \___/\_,_/_//_/\_,_/  v0.1.0
 `
 
+func init() {
+	loadFiltersFromEmbedded()
+}
+
 func Run(opts *Options) error {
 	if opts.List {
 		return listTemplates(opts)
@@ -167,7 +171,7 @@ func Run(opts *Options) error {
 
 	elapsed := time.Since(start)
 	if !opts.Quiet && outputFormat == "text" {
-		printSummary(len(tmpls), findingCount, elapsed, sevCount)
+		printSummary(scanner.Stats, findingCount, elapsed, sevCount)
 	}
 
 	if saveFile != nil && !opts.Quiet {
@@ -570,4 +574,41 @@ func expandPaths(raw string) []string {
 	}
 
 	return []string{raw}
+}
+
+// loadFiltersFromEmbedded loads extension and directory filters from embedded
+// templates and applies them to the proton file scanner.
+func loadFiltersFromEmbedded() {
+	cfg := file.FilterConfig{}
+
+	if extData := pkg.LoadConfig("found_filter_ext"); len(extData) > 0 {
+		var extGroups map[string][]string
+		if yaml.Unmarshal(extData, &extGroups) == nil {
+			cfg.AlwaysDenyExts = toExtSet(extGroups["always"])
+			cfg.ExecDenyExts = toExtSet(extGroups["executable"])
+			cfg.ArchiveDenyExts = toExtSet(extGroups["archive"])
+			cfg.DocDenyExts = toExtSet(extGroups["document"])
+			cfg.MiscDenyExts = toExtSet(extGroups["misc"])
+		}
+	}
+
+	if dirData := pkg.LoadConfig("found_filter_dir"); len(dirData) > 0 {
+		var dirGroups map[string][]string
+		if yaml.Unmarshal(dirData, &dirGroups) == nil {
+			cfg.SkipDirs = toExtSet(dirGroups["skip"])
+		}
+	}
+
+	file.SetFilters(cfg)
+}
+
+func toExtSet(items []string) map[string]struct{} {
+	if len(items) == 0 {
+		return nil
+	}
+	m := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		m[item] = struct{}{}
+	}
+	return m
 }

@@ -97,8 +97,8 @@ github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9/go.mod h1:6Mv6W
 github.com/chainreactors/neutron v0.0.0-20260203032004-95c9e8431214/go.mod h1:CktNFh1I1sNwFI9Ml+t0X/uuEoO4eAW5Dmb/cuzV8BY=
 github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b h1:bX3sRTEkXUIyqD9zsywNItE/gt7vKQGZnRv8esMFaMI=
 github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b/go.mod h1:Gh/QvVFVB9Gt0OeUrPpKq+kORAIHOD2O5a8MbKmu2IY=
-github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e h1:LN2xopCqfwMa3nhs/7NxOoSQjVHiXcb1KwCG6dop8p8=
-github.com/chainreactors/proton v0.0.0-20260519161637-f62d2894b87e/go.mod h1:9jeNA6Z7HdAEZlIFOsUFCQmE4PrLsdG8eHEqZnDPHUE=
+github.com/chainreactors/proton v0.0.0-20260519163320-7b8294da1862 h1:oGRd2/uzPwtmtQfQEcXXaxDfWVwLTLQTcVnq/N+I8jo=
+github.com/chainreactors/proton v0.0.0-20260519163320-7b8294da1862/go.mod h1:9jeNA6Z7HdAEZlIFOsUFCQmE4PrLsdG8eHEqZnDPHUE=
 github.com/chainreactors/utils v0.0.0-20240716182459-e85f2b01ee16/go.mod h1:LajXuvESQwP+qCMAvlcoSXppQCjuLlBrnQpu9XQ1HtU=
 github.com/chainreactors/utils v0.0.0-20250831165528-f06246b0f311/go.mod h1:LajXuvESQwP+qCMAvlcoSXppQCjuLlBrnQpu9XQ1HtU=
 github.com/chainreactors/utils v0.0.0-20260507101628-fd69d955ae21 h1:8Vf3BIolSLmZFeK8xYqKBDZi88g2iU9dtVIKohEFPW4=
