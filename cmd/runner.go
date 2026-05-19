@@ -78,7 +78,7 @@ func Run(opts *Options) error {
 	var findingCount int
 	sevCount := map[string]int{}
 	seen := map[string]bool{}
-	collectPaths := map[string]bool{}
+	var allFindings []Finding
 
 	// Build unified scanner inputs from loaded templates
 	execOpts := &protocols.ExecuterOptions{
@@ -124,7 +124,7 @@ func Run(opts *Options) error {
 		findingCount++
 		sevCount[f.Severity]++
 		if opts.Collect != "" {
-			collectPaths[f.FilePath] = true
+			allFindings = append(allFindings, f)
 		}
 		writer.WriteFinding(f)
 		if saveWriter != nil {
@@ -141,15 +141,17 @@ func Run(opts *Options) error {
 		logs.Log.Infof("Results saved to %s", opts.SaveFile)
 	}
 
-	if opts.Collect != "" && len(collectPaths) > 0 {
-		var paths []string
-		for p := range collectPaths {
-			paths = append(paths, p)
+	if opts.Collect != "" && len(allFindings) > 0 {
+		copts := collectOpts{
+			ZipPath:  opts.Collect,
+			Password: opts.Key,
+			BaseDir:  opts.Input,
+			KeepTree: opts.CollectTree,
+			Findings: allFindings,
 		}
-		if err := collectFiles(opts.Collect, opts.Key, opts.Input, paths); err != nil {
+		if err := collectFiles(copts); err != nil {
 			return fmt.Errorf("collect files: %v", err)
 		}
-		logs.Log.Infof("Collected %d files to %s", len(paths), opts.Collect)
 	}
 
 	return nil
