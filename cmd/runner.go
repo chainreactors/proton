@@ -131,14 +131,34 @@ func loadTemplates(opts *Options) ([]*templates.Template, error) {
 		Options: &protocols.Options{TextOnly: !opts.Bin},
 	}
 
+	excludePaths := make(map[string]bool)
+	for _, p := range opts.ExcludeTemplates {
+		abs, err := filepath.Abs(p)
+		if err == nil {
+			excludePaths[abs] = true
+		}
+	}
+
 	var tmpls []*templates.Template
 
-	for _, tmplPath := range opts.Templates {
-		loaded, err := loadFromPath(tmplPath, execOpts)
+	loadFiltered := func(path string) error {
+		loaded, err := loadFromPath(path, execOpts)
 		if err != nil {
+			return err
+		}
+		for _, t := range loaded {
+			tmpls = append(tmpls, t)
+		}
+		return nil
+	}
+
+	for _, tmplPath := range opts.Templates {
+		if abs, err := filepath.Abs(tmplPath); err == nil && excludePaths[abs] {
+			continue
+		}
+		if err := loadFiltered(tmplPath); err != nil {
 			return nil, fmt.Errorf("loading template %s: %v", tmplPath, err)
 		}
-		tmpls = append(tmpls, loaded...)
 	}
 
 	if len(opts.Templates) == 0 {
@@ -147,15 +167,11 @@ func loadTemplates(opts *Options) ([]*templates.Template, error) {
 			if _, err := os.Stat(catDir); os.IsNotExist(err) {
 				return nil, fmt.Errorf("category directory not found: %s", catDir)
 			}
-			loaded, _ := loadFromPath(catDir, execOpts)
-			tmpls = append(tmpls, loaded...)
+			loadFiltered(catDir)
 		}
 	}
 
-	if len(opts.Tags) > 0 {
-		tmpls = filterByTags(tmpls, opts.Tags)
-	}
-
+	tmpls = filterTemplates(tmpls, opts)
 	return tmpls, nil
 }
 
@@ -209,21 +225,58 @@ func loadSingleTemplate(path string, execOpts *protocols.ExecuterOptions) (*temp
 	return &tmpl, nil
 }
 
-func filterByTags(tmpls []*templates.Template, tags []string) []*templates.Template {
-	tagSet := make(map[string]bool)
-	for _, t := range tags {
-		tagSet[strings.TrimSpace(t)] = true
+func filterTemplates(tmpls []*templates.Template, opts *Options) []*templates.Template {
+	includeTags := toSet(opts.Tags)
+	excludeTags := toSet(opts.ExcludeTags)
+	includeIDs := toSet(opts.TemplateIDs)
+	excludeIDs := toSet(opts.ExcludeIDs)
+
+	if len(includeTags) == 0 && len(excludeTags) == 0 &&
+		len(includeIDs) == 0 && len(excludeIDs) == 0 {
+		return tmpls
 	}
+
 	var filtered []*templates.Template
 	for _, tmpl := range tmpls {
-		for _, tag := range tmpl.GetTags() {
-			if tagSet[strings.TrimSpace(tag)] {
-				filtered = append(filtered, tmpl)
-				break
-			}
+		if len(excludeIDs) > 0 && excludeIDs[tmpl.Id] {
+			continue
 		}
+		if len(includeIDs) > 0 && !includeIDs[tmpl.Id] {
+			continue
+		}
+
+		tags := tmpl.GetTags()
+
+		if len(excludeTags) > 0 && matchAnyTag(tags, excludeTags) {
+			continue
+		}
+		if len(includeTags) > 0 && !matchAnyTag(tags, includeTags) {
+			continue
+		}
+
+		filtered = append(filtered, tmpl)
 	}
 	return filtered
+}
+
+func toSet(items []string) map[string]bool {
+	if len(items) == 0 {
+		return nil
+	}
+	s := make(map[string]bool, len(items))
+	for _, item := range items {
+		s[strings.TrimSpace(strings.ToLower(item))] = true
+	}
+	return s
+}
+
+func matchAnyTag(tags []string, set map[string]bool) bool {
+	for _, tag := range tags {
+		if set[strings.TrimSpace(strings.ToLower(tag))] {
+			return true
+		}
+	}
+	return false
 }
 
 func parseSeverityFilter(s string) map[string]bool {

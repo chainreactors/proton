@@ -7,10 +7,14 @@ type Options struct {
 }
 
 type InputOptions struct {
-	Input      string   `short:"i" long:"input" description:"target file or directory to scan"`
-	Templates  []string `short:"t" long:"template" description:"template file or directory path (can specify multiple)"`
-	Categories []string `short:"c" long:"category" description:"builtin template categories, e.g. keys,logs" default:"keys"`
-	Tags       []string `long:"tags" description:"filter templates by tags"`
+	Input            string   `short:"i" long:"input" description:"target file or directory to scan"`
+	Templates        []string `short:"t" long:"template" description:"template file or directory path (can specify multiple)"`
+	ExcludeTemplates []string `long:"exclude-template" description:"template file or directory to exclude (can specify multiple)"`
+	Categories       []string `short:"c" long:"category" description:"builtin template categories, e.g. keys,logs" default:"keys"`
+	TemplateIDs      []string `long:"id" description:"filter templates by ID (can specify multiple)"`
+	ExcludeIDs       []string `long:"exclude-id" description:"exclude templates by ID (can specify multiple)"`
+	Tags             []string `long:"tags" description:"filter templates by tags (comma-separated in template)"`
+	ExcludeTags      []string `long:"etags" description:"exclude templates by tags"`
 }
 
 type OutputOptions struct {
