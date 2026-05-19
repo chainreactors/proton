@@ -132,6 +132,39 @@ func isTextContent(data []byte) bool {
 	return float64(nonText)/float64(len(data)) < 0.30
 }
 
+// FilterConfig allows callers to override the default extension and directory filters.
+type FilterConfig struct {
+	AlwaysDenyExts map[string]struct{}
+	ExecDenyExts   map[string]struct{}
+	ArchiveDenyExts map[string]struct{}
+	DocDenyExts    map[string]struct{}
+	MiscDenyExts   map[string]struct{}
+	SkipDirs       map[string]struct{}
+}
+
+// SetFilters replaces the package-level filter maps with values from cfg.
+// Only non-nil fields are applied.
+func SetFilters(cfg FilterConfig) {
+	if cfg.AlwaysDenyExts != nil {
+		alwaysDenyExts = cfg.AlwaysDenyExts
+	}
+	if cfg.ExecDenyExts != nil {
+		execDenyExts = cfg.ExecDenyExts
+	}
+	if cfg.ArchiveDenyExts != nil {
+		archiveDenyExts = cfg.ArchiveDenyExts
+	}
+	if cfg.DocDenyExts != nil {
+		docDenyExts = cfg.DocDenyExts
+	}
+	if cfg.MiscDenyExts != nil {
+		miscDenyExts = cfg.MiscDenyExts
+	}
+	if cfg.SkipDirs != nil {
+		defaultSkipDirs = cfg.SkipDirs
+	}
+}
+
 // RequestPartDefinitions contains a mapping of request part definitions and their
 // description. Multiple definitions are separated by commas.
 // Definitions not having a name (generated on runtime) are prefixed & suffixed by <>.
