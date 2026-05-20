@@ -17,12 +17,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/chainreactors/neutron/common"
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/charlievieth/fastwalk"
 	mmap "github.com/edsrzf/mmap-go"
 	"github.com/mholt/archives"
-	ahocorasick "github.com/petar-dambovaliev/aho-corasick"
+	"github.com/chainreactors/utils/ahocorasick"
 )
 
 type patternSource struct {
@@ -40,6 +41,8 @@ type ruleRef struct {
 	Request  *Request
 }
 
+type ScanGroup = scanGroup
+
 type scanGroup struct {
 	AllExtensions bool
 	Extensions    map[string]struct{}
@@ -53,7 +56,7 @@ type scanGroup struct {
 }
 
 type patternIndex struct {
-	ac               *ahocorasick.AhoCorasick
+	ac               *ahocorasick.Automaton
 	literals         []string
 	literalToSources map[int][]int
 	fallbackSources  []int
@@ -94,17 +97,7 @@ type ScanStats struct {
 }
 
 func (s ScanStats) HumanBytes() string {
-	b := float64(s.Bytes)
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1fGB", b/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1fMB", b/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1fKB", b/(1<<10))
-	default:
-		return fmt.Sprintf("%dB", s.Bytes)
-	}
+	return common.HumanSize(float64(s.Bytes))
 }
 
 type Scanner struct {
@@ -223,12 +216,13 @@ func buildPatternIndex(sources []patternSource) *patternIndex {
 	}
 	idx.literals = allLiterals
 	if len(allLiterals) > 0 {
-		builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
-			AsciiCaseInsensitive: true, MatchOnlyWholeWords: false,
-			MatchKind: ahocorasick.LeftMostLongestMatch, DFA: true,
-		})
-		ac := builder.Build(allLiterals)
-		idx.ac = &ac
+		ac, err := ahocorasick.NewBuilder().
+			AddStrings(allLiterals).
+			SetMatchKind(ahocorasick.LeftmostLongest).
+			Build()
+		if err == nil {
+			idx.ac = ac
+		}
 	}
 	return idx
 }
@@ -332,13 +326,13 @@ func (idx *patternIndex) relevantSources(line string, buf *[]int, seen []bool) [
 	if idx == nil || idx.ac == nil {
 		return idx.fallbackSources
 	}
-	hits := idx.ac.FindAll(line)
+	hits := idx.ac.FindAll([]byte(strings.ToLower(line)), -1)
 	if len(hits) == 0 && len(idx.fallbackSources) == 0 {
 		return nil
 	}
 	result := (*buf)[:0]
 	for _, hit := range hits {
-		for _, srcIdx := range idx.literalToSources[hit.Pattern()] {
+		for _, srcIdx := range idx.literalToSources[hit.PatternID] {
 			if !seen[srcIdx] {
 				seen[srcIdx] = true
 				result = append(result, srcIdx)
@@ -495,6 +489,13 @@ func (s *Scanner) processFile(path string, group *scanGroup) []Finding {
 	}
 
 	return s.scanData(data, path, group)
+}
+
+// ScanData runs the line-scanning pipeline on in-memory content and returns findings.
+// This is the primary entry point for callers that already have the data in memory
+// (e.g. spray processing HTTP response bodies).
+func (s *Scanner) ScanData(data []byte, filePath string, group *scanGroup) []Finding {
+	return s.scanData(data, filePath, group)
 }
 
 // scanData runs the line-scanning pipeline on raw content and returns findings.

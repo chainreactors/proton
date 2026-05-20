@@ -6,13 +6,13 @@ toolchain go1.24.3
 
 require (
 	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
+	github.com/chainreactors/utils v0.0.0-20260520013422-17d44b97430a
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/gobwas/glob v0.2.3
 	github.com/h2non/filetype v1.1.3
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/mholt/archives v0.1.5
-	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745
 	github.com/stretchr/testify v1.10.0
 	github.com/wasilibs/go-re2 v1.10.0
 	gopkg.in/yaml.v3 v3.0.1

@@ -6,15 +6,14 @@ import (
 	"sync"
 
 	"github.com/chainreactors/neutron/operators"
-	ahocorasick "github.com/petar-dambovaliev/aho-corasick"
+	"github.com/chainreactors/utils/ahocorasick"
 )
 
 var wordRe = regexp.MustCompile(`[a-zA-Z]{2,}`)
 
 type acIndex struct {
-	ac       ahocorasick.AhoCorasick
-	patterns []string
-	// keyword → list of pattern indices that contain this keyword
+	ac                *ahocorasick.Automaton
+	patterns          []string
 	keywordToPatterns map[int][]int
 }
 
@@ -87,13 +86,13 @@ func buildACIndex(extractor *operators.Extractor) *acIndex {
 		return nil
 	}
 
-	builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
-		AsciiCaseInsensitive: true,
-		MatchOnlyWholeWords:  false,
-		MatchKind:            ahocorasick.LeftMostLongestMatch,
-		DFA:                  true,
-	})
-	ac := builder.Build(keywords)
+	ac, err := ahocorasick.NewBuilder().
+		AddStrings(keywords).
+		SetMatchKind(ahocorasick.LeftmostLongest).
+		Build()
+	if err != nil {
+		return nil
+	}
 
 	idx := &acIndex{
 		ac:                ac,
@@ -118,23 +117,20 @@ func (request *Request) extractRegexWithAC(extractor *operators.Extractor, corpu
 		return request.extractRegexRE2(extractor, corpus)
 	}
 
-	matches := idx.ac.FindAll(corpus)
+	matches := idx.ac.FindAll([]byte(strings.ToLower(corpus)), -1)
 
 	if len(matches) == 0 && len(idx.keywordToPatterns[-1]) == 0 {
 		return nil
 	}
 
-	// Collect which pattern indices need to run
 	needRun := make(map[int]bool)
 
-	// Always-run patterns (no extractable keyword)
 	for _, pi := range idx.keywordToPatterns[-1] {
 		needRun[pi] = true
 	}
 
-	// Patterns whose keyword was found
 	for _, m := range matches {
-		for _, pi := range idx.keywordToPatterns[m.Pattern()] {
+		for _, pi := range idx.keywordToPatterns[m.PatternID] {
 			needRun[pi] = true
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/chainreactors/neutron/operators"
-	ahocorasick "github.com/petar-dambovaliev/aho-corasick"
+	"github.com/chainreactors/utils/ahocorasick"
 )
 
 // linePrefilter uses literal substrings extracted from regex patterns to
@@ -17,7 +17,7 @@ type linePrefilter struct {
 	lowercaseLiterals  [][]byte
 	hasCaseInsensitive bool
 	disabled           bool // true when no literals could be extracted
-	ac                 *ahocorasick.AhoCorasick // AC automaton for many patterns
+	ac                 *ahocorasick.Automaton
 	useAC              bool                     // true when ac should be used
 }
 
@@ -111,15 +111,13 @@ func buildPrefilter(ops *operators.Operators) *linePrefilter {
 				acPatterns[i] = lit
 			}
 		}
-		builder := ahocorasick.NewAhoCorasickBuilder(ahocorasick.Opts{
-			AsciiCaseInsensitive: hasCaseInsensitive,
-			MatchOnlyWholeWords:  false,
-			MatchKind:            ahocorasick.StandardMatch,
-			DFA:                  true,
-		})
-		ac := builder.Build(acPatterns)
-		f.ac = &ac
-		f.useAC = true
+		ac, err := ahocorasick.NewBuilder().
+			AddStrings(acPatterns).
+			Build()
+		if err == nil {
+			f.ac = ac
+			f.useAC = true
+		}
 	}
 
 	return f
@@ -162,30 +160,89 @@ func extractLiterals(pattern string) []string {
 	}
 
 	// Find the longest literal run: consecutive characters that are not
-	// regex metacharacters.
+	// regex metacharacters. Properly skips character classes, quantifiers,
+	// and groups containing alternation.
 	var best string
 	var current strings.Builder
 	for i := 0; i < len(p); i++ {
 		ch := p[i]
-		// Detect backslash escapes — the escaped character is literal
-		// only for certain common cases.
 		if ch == '\\' && i+1 < len(p) {
 			next := p[i+1]
-			// Literal escapes: \$ \. \- etc.
 			if regexp.QuoteMeta(string(next)) != string(next) || next == '\\' || next == '$' {
 				current.WriteByte(next)
-				i++ // skip next
+				i++
 				continue
 			}
-			// Non-literal escape (\d, \w, etc.) — break the run.
 			if current.Len() > len(best) {
 				best = current.String()
 			}
 			current.Reset()
-			i++ // skip next
+			i++
 			continue
 		}
-		if strings.ContainsRune(".*+?^${}()|[]", rune(ch)) {
+		// Skip character class contents entirely.
+		if ch == '[' {
+			if current.Len() > len(best) {
+				best = current.String()
+			}
+			current.Reset()
+			for i++; i < len(p); i++ {
+				if p[i] == '\\' && i+1 < len(p) {
+					i++
+				} else if p[i] == ']' {
+					break
+				}
+			}
+			continue
+		}
+		// Skip quantifier braces {n,m}.
+		if ch == '{' {
+			if current.Len() > len(best) {
+				best = current.String()
+			}
+			current.Reset()
+			for i++; i < len(p); i++ {
+				if p[i] == '}' {
+					break
+				}
+			}
+			continue
+		}
+		// For groups: if the group contains alternation (|), skip it
+		// entirely — a literal from one branch is not guaranteed.
+		if ch == '(' {
+			if current.Len() > len(best) {
+				best = current.String()
+			}
+			current.Reset()
+			depth := 1
+			hasAlt := false
+			start := i
+			for i++; i < len(p) && depth > 0; i++ {
+				switch p[i] {
+				case '\\':
+					if i+1 < len(p) {
+						i++
+					}
+				case '(':
+					depth++
+				case ')':
+					depth--
+				case '|':
+					if depth == 1 {
+						hasAlt = true
+					}
+				}
+			}
+			i-- // loop will i++ again
+			if !hasAlt {
+				// No alternation — reprocess contents (skip the parens themselves)
+				// by rewinding. We've already saved best; restart from after '('.
+				i = start // will be incremented by for-loop
+			}
+			continue
+		}
+		if strings.ContainsRune(".*+?^$})|]", rune(ch)) {
 			if current.Len() > len(best) {
 				best = current.String()
 			}
@@ -212,8 +269,10 @@ func (f *linePrefilter) mayMatch(line []byte) bool {
 		return true
 	}
 	if f.useAC {
-		matches := f.ac.FindAll(string(line))
-		return len(matches) > 0
+		if f.hasCaseInsensitive {
+			return f.ac.IsMatch(asciiLowerBytes(line))
+		}
+		return f.ac.IsMatch(line)
 	}
 	if f.hasCaseInsensitive {
 		for _, lit := range f.lowercaseLiterals {
@@ -229,6 +288,18 @@ func (f *linePrefilter) mayMatch(line []byte) bool {
 		}
 	}
 	return false
+}
+
+func asciiLowerBytes(s []byte) []byte {
+	out := make([]byte, len(s))
+	for i, b := range s {
+		if b >= 'A' && b <= 'Z' {
+			out[i] = b + ('a' - 'A')
+		} else {
+			out[i] = b
+		}
+	}
+	return out
 }
 
 // containsFoldASCII performs a case-insensitive substring search without
