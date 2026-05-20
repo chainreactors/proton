@@ -2,7 +2,6 @@ package file
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 
 	"github.com/chainreactors/neutron/operators"
@@ -123,142 +122,8 @@ func buildPrefilter(ops *operators.Operators) *linePrefilter {
 	return f
 }
 
-// extractLiterals pulls literal substrings out of a regex pattern that must
-// appear in any matching input. Returns nil if no useful literal is found.
 func extractLiterals(pattern string) []string {
-	// Strip common non-literal prefixes.
-	p := pattern
-	if strings.HasPrefix(p, "(?i)") {
-		p = p[4:]
-	}
-	if strings.HasPrefix(p, "^") {
-		p = p[1:]
-	}
-	if strings.HasPrefix(p, `\b`) {
-		p = p[2:]
-	}
-
-	// Look for alternation groups like (key|password|passwd).
-	if idx := strings.Index(p, "("); idx >= 0 {
-		end := strings.Index(p[idx:], ")")
-		if end > 0 {
-			inner := p[idx+1 : idx+end]
-			if strings.Contains(inner, "|") && !strings.ContainsAny(inner, "([{\\.*+?^$") {
-				alternatives := strings.Split(inner, "|")
-				var result []string
-				for _, alt := range alternatives {
-					alt = strings.TrimSpace(alt)
-					if len(alt) >= 3 && regexp.QuoteMeta(alt) == alt {
-						result = append(result, alt)
-					}
-				}
-				if len(result) > 0 {
-					return result
-				}
-			}
-		}
-	}
-
-	// Find the longest literal run: consecutive characters that are not
-	// regex metacharacters. Properly skips character classes, quantifiers,
-	// and groups containing alternation.
-	var best string
-	var current strings.Builder
-	for i := 0; i < len(p); i++ {
-		ch := p[i]
-		if ch == '\\' && i+1 < len(p) {
-			next := p[i+1]
-			if regexp.QuoteMeta(string(next)) != string(next) || next == '\\' || next == '$' {
-				current.WriteByte(next)
-				i++
-				continue
-			}
-			if current.Len() > len(best) {
-				best = current.String()
-			}
-			current.Reset()
-			i++
-			continue
-		}
-		// Skip character class contents entirely.
-		if ch == '[' {
-			if current.Len() > len(best) {
-				best = current.String()
-			}
-			current.Reset()
-			for i++; i < len(p); i++ {
-				if p[i] == '\\' && i+1 < len(p) {
-					i++
-				} else if p[i] == ']' {
-					break
-				}
-			}
-			continue
-		}
-		// Skip quantifier braces {n,m}.
-		if ch == '{' {
-			if current.Len() > len(best) {
-				best = current.String()
-			}
-			current.Reset()
-			for i++; i < len(p); i++ {
-				if p[i] == '}' {
-					break
-				}
-			}
-			continue
-		}
-		// For groups: if the group contains alternation (|), skip it
-		// entirely — a literal from one branch is not guaranteed.
-		if ch == '(' {
-			if current.Len() > len(best) {
-				best = current.String()
-			}
-			current.Reset()
-			depth := 1
-			hasAlt := false
-			start := i
-			for i++; i < len(p) && depth > 0; i++ {
-				switch p[i] {
-				case '\\':
-					if i+1 < len(p) {
-						i++
-					}
-				case '(':
-					depth++
-				case ')':
-					depth--
-				case '|':
-					if depth == 1 {
-						hasAlt = true
-					}
-				}
-			}
-			i-- // loop will i++ again
-			if !hasAlt {
-				// No alternation — reprocess contents (skip the parens themselves)
-				// by rewinding. We've already saved best; restart from after '('.
-				i = start // will be incremented by for-loop
-			}
-			continue
-		}
-		if strings.ContainsRune(".*+?^$})|]", rune(ch)) {
-			if current.Len() > len(best) {
-				best = current.String()
-			}
-			current.Reset()
-			continue
-		}
-		current.WriteByte(ch)
-	}
-	if current.Len() > len(best) {
-		best = current.String()
-	}
-
-	if len(best) >= 3 {
-		return []string{best}
-	}
-	return nil
+	return ahocorasick.ExtractLiterals(pattern)
 }
 
 // mayMatch returns true if the line might match any of the prefilter's
