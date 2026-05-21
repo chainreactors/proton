@@ -7,8 +7,8 @@ toolchain go1.24.3
 require (
 	github.com/chainreactors/fingers v1.2.0
 	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
-	github.com/chainreactors/neutron v0.0.0-20260520133933-ac7deb693a0e
-	github.com/chainreactors/proton v0.0.0-20260520090438-6e2b3a2b092c
+	github.com/chainreactors/neutron v0.0.0-20260521032511-94073805bf61
+	github.com/chainreactors/proton v0.0.0-20260521032855-e7e7b12b4506
 	github.com/chainreactors/utils v0.0.0-20260520090033-cfefcb28cc6f
 	github.com/gobwas/glob v0.2.3
 	github.com/jessevdk/go-flags v1.6.1
