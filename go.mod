@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
+	github.com/chainreactors/neutron v0.0.0-20260521032511-94073805bf61
 	github.com/chainreactors/utils v0.0.0-20260520090033-cfefcb28cc6f
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
