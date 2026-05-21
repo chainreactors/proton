@@ -18,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "v0.1.0"
+const Version = "v0.1.1"
 
 const banner = `
    ____                  __

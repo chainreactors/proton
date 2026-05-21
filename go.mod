@@ -7,9 +7,10 @@ toolchain go1.24.3
 require (
 	github.com/chainreactors/fingers v1.2.0
 	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
-	github.com/chainreactors/neutron v0.0.0-20260519161201-b0482d8bb58b
-	github.com/chainreactors/proton v0.0.0-20260519163320-7b8294da1862
-	github.com/chainreactors/utils v0.0.0-20260507101628-fd69d955ae21
+	github.com/chainreactors/neutron v0.0.0-20260520133933-ac7deb693a0e
+	github.com/chainreactors/proton v0.0.0-20260520090438-6e2b3a2b092c
+	github.com/chainreactors/utils v0.0.0-20260520090033-cfefcb28cc6f
+	github.com/gobwas/glob v0.2.3
 	github.com/jessevdk/go-flags v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
 	sigs.k8s.io/yaml v1.6.0
@@ -29,7 +30,6 @@ require (
 	github.com/go-dedup/megophone v0.0.0-20170830025436-f01be21026f5 // indirect
 	github.com/go-dedup/simhash v0.0.0-20170904020510-9ecaca7b509c // indirect
 	github.com/go-dedup/text v0.0.0-20170907015346-8bb1b95e3cb7 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
@@ -44,7 +44,6 @@ require (
 	github.com/mozillazg/go-pinyin v0.20.0 // indirect
 	github.com/nwaples/rardecode v1.1.3 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.0 // indirect
-	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
