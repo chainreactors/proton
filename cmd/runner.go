@@ -86,7 +86,7 @@ func Run(opts *Options) error {
 		outputFormat = "json"
 	}
 
-	useColor := isTTY(os.Stdout) && !opts.NoColor && outputFormat != "json"
+	useColor := isTTY(os.Stdout) && !opts.NoColor && outputFormat == "text"
 	showProgress := isTTY(os.Stderr) && !opts.Quiet && outputFormat == "text"
 	if useColor {
 		logs.Log.SetColor(true)
@@ -213,12 +213,14 @@ func Run(opts *Options) error {
 		findingCount++
 		sevCount[f.Severity]++
 		allFindings = append(allFindings, f)
-		if showProgress {
-			fmt.Fprint(os.Stderr, "\r\033[K")
-		}
-		writer.WriteFinding(f)
-		if saveWriter != nil {
-			saveWriter.WriteFinding(f)
+		if outputFormat != "zombie" {
+			if showProgress {
+				fmt.Fprint(os.Stderr, "\r\033[K")
+			}
+			writer.WriteFinding(f)
+			if saveWriter != nil {
+				saveWriter.WriteFinding(f)
+			}
 		}
 	}
 
@@ -250,6 +252,13 @@ func Run(opts *Options) error {
 		}
 		if !opts.Quiet && outputFormat == "text" {
 			logs.Log.Infof("Findings saved to %s (%d entries)", opts.Findings, len(b.Entries))
+		}
+	}
+
+	if outputFormat == "zombie" {
+		writeZombieOutput(out, allFindings, opts.Quiet)
+		if saveFile != nil {
+			writeZombieOutput(saveFile, allFindings, true)
 		}
 	}
 

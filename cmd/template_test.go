@@ -508,3 +508,106 @@ func containsImpl(s, substr string) bool {
 	}
 	return false
 }
+
+func TestZombieParseURL(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantIP  string
+		wantSvc string
+		wantUsr string
+	}{
+		{"mongodb://admin:pass@10.0.0.1:27017/db", "10.0.0.1", "mongo", "admin"},
+		{"redis://cache:6379", "cache", "redis", ""},
+		{"mysql://root:toor@db.local:3306/app", "db.local", "mysql", "root"},
+		{"ssh://deploy@10.0.0.5:22", "10.0.0.5", "ssh", "deploy"},
+		{"http://admin:secret@intranet:8080/api", "intranet", "http", "admin"},
+		{"not-a-url", "", "", ""},
+		{"", "", "", ""},
+	}
+	for _, tt := range tests {
+		got := parseExtractValue(tt.input)
+		if tt.wantIP == "" {
+			if got != nil {
+				t.Errorf("parseExtractValue(%q) = %+v, want nil", tt.input, got)
+			}
+			continue
+		}
+		if got == nil {
+			t.Errorf("parseExtractValue(%q) = nil, want ip=%s", tt.input, tt.wantIP)
+			continue
+		}
+		if got.IP != tt.wantIP {
+			t.Errorf("parseExtractValue(%q).IP = %q, want %q", tt.input, got.IP, tt.wantIP)
+		}
+		if got.Service != tt.wantSvc {
+			t.Errorf("parseExtractValue(%q).Service = %q, want %q", tt.input, got.Service, tt.wantSvc)
+		}
+		if got.Username != tt.wantUsr {
+			t.Errorf("parseExtractValue(%q).Username = %q, want %q", tt.input, got.Username, tt.wantUsr)
+		}
+	}
+}
+
+func TestZombieParseJDBC(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantIP   string
+		wantPort string
+		wantUsr  string
+		wantPass string
+	}{
+		{"jdbc:mysql://user:pass@10.0.0.1:3306/db", "10.0.0.1", "3306", "user", "pass"},
+		{"jdbc:postgresql://host:5432/db;user=app;password=s3cret", "host", "5432", "app", "s3cret"},
+		// oracle thin format requires special handling - skip in V1
+	}
+	for _, tt := range tests {
+		got := parseExtractValue(tt.input)
+		if got == nil {
+			t.Errorf("parseExtractValue(%q) = nil", tt.input)
+			continue
+		}
+		if got.IP != tt.wantIP {
+			t.Errorf("%q: IP = %q, want %q", tt.input, got.IP, tt.wantIP)
+		}
+		if got.Port != tt.wantPort {
+			t.Errorf("%q: Port = %q, want %q", tt.input, got.Port, tt.wantPort)
+		}
+		if got.Username != tt.wantUsr {
+			t.Errorf("%q: Username = %q, want %q", tt.input, got.Username, tt.wantUsr)
+		}
+		if got.Password != tt.wantPass {
+			t.Errorf("%q: Password = %q, want %q", tt.input, got.Password, tt.wantPass)
+		}
+	}
+}
+
+func TestZombieParseODBC(t *testing.T) {
+	input := "Server=10.0.0.50;Port=1433;User Id=sa;Password=Str0ng;Database=master"
+	got := parseExtractValue(input)
+	if got == nil {
+		t.Fatal("parseExtractValue(ODBC) = nil")
+	}
+	if got.IP != "10.0.0.50" {
+		t.Errorf("IP = %q, want 10.0.0.50", got.IP)
+	}
+	if got.Port != "1433" {
+		t.Errorf("Port = %q, want 1433", got.Port)
+	}
+	if got.Username != "sa" {
+		t.Errorf("Username = %q, want sa", got.Username)
+	}
+	if got.Password != "Str0ng" {
+		t.Errorf("Password = %q, want Str0ng", got.Password)
+	}
+}
+
+func TestZombieFilterPlaceholders(t *testing.T) {
+	got := parseExtractValue("redis://localhost:6379")
+	if got != nil && isValidTarget(got) {
+		t.Error("localhost should be filtered")
+	}
+	got = parseExtractValue("mysql://user:pass@${DB_HOST}:3306/db")
+	if got != nil && isValidTarget(got) {
+		t.Error("${VAR} should be filtered")
+	}
+}

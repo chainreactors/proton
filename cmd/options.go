@@ -23,7 +23,7 @@ type InputOptions struct {
 }
 
 type OutputOptions struct {
-	Output   string `short:"o" long:"output" description:"output format: text, json" default:"text" choice:"text" choice:"json"`
+	Output   string `short:"o" long:"output" description:"output format: text, json, zombie" default:"text" choice:"text" choice:"json" choice:"zombie"`
 	JSON     bool   `short:"j" long:"json" description:"shorthand for -o json (jsonlines to stdout)"`
 	SaveFile string `short:"s" long:"save" description:"save results to file"`
 	Collect     string `long:"collect" description:"collect matched files into a zip archive (e.g. --collect findings.zip)"`
