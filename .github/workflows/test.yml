@@ -27,7 +27,9 @@ jobs:
           GONOSUMDB: "github.com/chainreactors/*"
 
       - name: Build
-        run: go build -v -o found ./...
+        run: |
+          go build -v ./...
+          go build -o found .
         env:
           GONOSUMCHECK: "github.com/chainreactors/*"
           GONOSUMDB: "github.com/chainreactors/*"
