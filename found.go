@@ -23,7 +23,10 @@ Examples:
   found -i ~/projects --severity high        Only show high severity findings
   found -i ~/projects -j -s out.json         Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file
-  found --list                               List available templates`
+  found --list                               List available templates
+  found --validate -t my-rules/              Validate template files
+  found --update-templates --template-url <repo>  Install templates from git repo
+  found --update-templates                   Update previously installed templates`
 
 	_, err := parser.Parse()
 	if err != nil {

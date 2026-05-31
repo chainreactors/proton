@@ -1,9 +1,10 @@
 package cmd
 
 type Options struct {
-	InputOptions  `group:"Input Options"`
-	OutputOptions `group:"Output Options"`
-	ScanOptions   `group:"Scan Options"`
+	InputOptions     `group:"Input Options"`
+	OutputOptions    `group:"Output Options"`
+	ScanOptions      `group:"Scan Options"`
+	TemplateOptions  `group:"Template Management"`
 	Version bool `long:"version" description:"print version and exit"`
 }
 
@@ -38,4 +39,12 @@ type ScanOptions struct {
 	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`
 	TemplateDir string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`
 	List        bool   `long:"list" description:"list available templates and exit"`
+	Validate    bool   `long:"validate" description:"validate templates and exit"`
+	Display     string `short:"d" long:"template-display" description:"display template content by ID or file path"`
+}
+
+type TemplateOptions struct {
+	UpdateTemplates   bool   `long:"update-templates" description:"download or update templates from a git repository"`
+	TemplateURL       string `long:"template-url" description:"custom template repository URL (saved to config)"`
+	UpdateTemplateDir string `long:"update-template-dir" description:"custom directory for template installation (default: ~/.config/found/templates)"`
 }

@@ -31,6 +31,15 @@ func init() {
 }
 
 func Run(opts *Options) error {
+	if opts.UpdateTemplates {
+		return runUpdateTemplates(opts)
+	}
+	if opts.Validate {
+		return runValidate(opts)
+	}
+	if opts.Display != "" {
+		return runTemplateDisplay(opts)
+	}
 	if opts.List {
 		return listTemplates(opts)
 	}
@@ -263,8 +272,10 @@ func loadTemplates(opts *Options) ([]*templates.Template, error) {
 	}
 
 	if len(opts.Templates) == 0 {
-		loaded := loadEmbeddedTemplates(&tmpls, opts.Categories, execOpts)
-		if !loaded {
+		tmplDir := resolveTemplateDir(opts)
+		if loadLocalTemplates(&tmpls, tmplDir, opts.Categories, execOpts) {
+			logs.Log.Debugf("Loaded templates from %s", tmplDir)
+		} else if loaded := loadEmbeddedTemplates(&tmpls, opts.Categories, execOpts); !loaded {
 			for _, cat := range opts.Categories {
 				catDir := filepath.Join(opts.TemplateDir, cat)
 				if _, err := os.Stat(catDir); os.IsNotExist(err) {
@@ -430,6 +441,8 @@ func listTemplates(opts *Options) error {
 				return nil
 			})
 		}
+	} else if localInfos := listLocalTemplateInfos(resolveTemplateDir(opts)); len(localInfos) > 0 {
+		infos = localInfos
 	} else if data := pkg.LoadConfig("found_keys"); len(data) > 0 {
 		var pocs []interface{}
 		if yaml.Unmarshal(data, &pocs) == nil {
