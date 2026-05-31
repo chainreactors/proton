@@ -12,11 +12,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+
+      - name: Generate
+        run: go generate ./...
+        env:
+          GONOSUMCHECK: "github.com/chainreactors/*"
+          GONOSUMDB: "github.com/chainreactors/*"
 
       - name: Build
         run: go build -v ./...
