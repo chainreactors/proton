@@ -119,9 +119,16 @@ func Run(opts *Options) error {
 		logs.Log.Infof("Loaded %d ignore rules (post-scan suppression)", len(ignFilter.rules))
 	}
 
+	bl := loadBaseline(opts.Baseline)
+	if bl != nil && len(bl.Entries) > 0 && !opts.Quiet && outputFormat == "text" {
+		logs.Log.Infof("Loaded baseline with %d known findings", len(bl.Entries))
+	}
+	failOn := parseFailOn(opts.FailOn)
+
 	sevFilter := parseSeverityFilter(opts.Severity)
 	start := time.Now()
 	var findingCount int
+	var baselinedCount int
 	sevCount := map[string]int{}
 	seen := map[string]bool{}
 	var allFindings []Finding
@@ -188,12 +195,24 @@ func Run(opts *Options) error {
 		if ignFilter.shouldIgnore(f.TemplateID, relPath) {
 			return
 		}
+		if opts.Baseline != "" && isSamePath(f.FilePath, opts.Baseline, baseDir) {
+			return
+		}
+		if opts.Findings != "" && isSamePath(f.FilePath, opts.Findings, baseDir) {
+			return
+		}
+
+		if bl != nil {
+			bkey := findingKey(f.TemplateID, relPath, f.Matches, f.Extracts)
+			if bl.Contains(bkey) {
+				baselinedCount++
+				return
+			}
+		}
 
 		findingCount++
 		sevCount[f.Severity]++
-		if opts.Collect != "" {
-			allFindings = append(allFindings, f)
-		}
+		allFindings = append(allFindings, f)
 		if showProgress {
 			fmt.Fprint(os.Stderr, "\r\033[K")
 		}
@@ -215,10 +234,23 @@ func Run(opts *Options) error {
 			suppressed = ignFilter.suppressed
 		}
 		printSummary(scanner.Stats, findingCount, elapsed, sevCount, useColor, suppressed)
+		if baselinedCount > 0 {
+			printBaselineSummary(findingCount+baselinedCount, findingCount, baselinedCount, useColor)
+		}
 	}
 
 	if saveFile != nil && !opts.Quiet {
 		logs.Log.Infof("Results saved to %s", opts.SaveFile)
+	}
+
+	if opts.Findings != "" {
+		b := createBaseline(allFindings, baseDir)
+		if err := saveBaseline(b, opts.Findings); err != nil {
+			return fmt.Errorf("save findings: %v", err)
+		}
+		if !opts.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Findings saved to %s (%d entries)", opts.Findings, len(b.Entries))
+		}
 	}
 
 	if opts.Collect != "" && len(allFindings) > 0 {
@@ -231,6 +263,10 @@ func Run(opts *Options) error {
 		if err := collectFiles(copts); err != nil {
 			return fmt.Errorf("collect files: %v", err)
 		}
+	}
+
+	if shouldFail(failOn, sevCount) {
+		return &ExitError{Code: 1, Msg: "findings match --fail-on criteria"}
 	}
 
 	return nil

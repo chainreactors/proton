@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -410,6 +411,88 @@ func TestResolveTemplateDirPriority(t *testing.T) {
 	opts.UpdateTemplateDir = ""
 	if got := resolveTemplateDir(opts); got != "/from-config" {
 		t.Errorf("config should win over default, got %q", got)
+	}
+}
+
+func TestBaselineCreateAndFilter(t *testing.T) {
+	tmplDir := setupTestTemplateDir(t, map[string]string{
+		"rule1.yaml": testTemplateValid,
+	})
+	targetDir := setupTestTarget(t, map[string]string{
+		"app.conf":    "SECRET_KEY=abcdefgh12345678\n",
+		"config.conf": "SECRET_KEY=zzzzzzzzzzzzzzzz\n",
+	})
+
+	opts := &Options{}
+	opts.Templates = []string{tmplDir}
+	opts.Categories = []string{"keys"}
+	opts.Input = targetDir
+	opts.Output = "json"
+	opts.Quiet = true
+	opts.Findings = filepath.Join(t.TempDir(), "baseline.json")
+
+	if err := Run(opts); err != nil {
+		t.Fatalf("Run with create-baseline failed: %v", err)
+	}
+
+	data, err := os.ReadFile(opts.Findings)
+	if err != nil {
+		t.Fatalf("read baseline: %v", err)
+	}
+	var bl Baseline
+	if err := json.Unmarshal(data, &bl); err != nil {
+		t.Fatalf("parse baseline: %v", err)
+	}
+	if len(bl.Entries) != 2 {
+		t.Fatalf("expected 2 baseline entries, got %d", len(bl.Entries))
+	}
+
+	// Now scan again with baseline — should suppress both
+	opts2 := &Options{}
+	opts2.Templates = []string{tmplDir}
+	opts2.Categories = []string{"keys"}
+	opts2.Input = targetDir
+	opts2.Output = "json"
+	opts2.Quiet = true
+	opts2.Baseline = opts.Findings
+
+	if err := Run(opts2); err != nil {
+		t.Fatalf("Run with baseline failed: %v", err)
+	}
+}
+
+func TestFailOn(t *testing.T) {
+	tmplDir := setupTestTemplateDir(t, map[string]string{
+		"rule1.yaml": testTemplateValid,
+	})
+	targetDir := setupTestTarget(t, map[string]string{
+		"app.conf": "SECRET_KEY=abcdefgh12345678\n",
+	})
+
+	opts := &Options{}
+	opts.Templates = []string{tmplDir}
+	opts.Categories = []string{"keys"}
+	opts.Input = targetDir
+	opts.Output = "json"
+	opts.Quiet = true
+	opts.FailOn = "high"
+
+	err := Run(opts)
+	if err == nil {
+		t.Fatal("expected error from --fail-on high")
+	}
+	exitErr, ok := err.(*ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %T: %v", err, err)
+	}
+	if exitErr.Code != 1 {
+		t.Errorf("expected exit code 1, got %d", exitErr.Code)
+	}
+
+	// No match — should not fail
+	opts.FailOn = "critical"
+	if err := Run(opts); err != nil {
+		t.Fatalf("should not fail on critical when only high findings: %v", err)
 	}
 }
 

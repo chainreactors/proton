@@ -33,14 +33,17 @@ type OutputOptions struct {
 }
 
 type ScanOptions struct {
-	Auto        bool   `long:"auto" description:"auto-detect OS and scan common sensitive directories"`
-	Bin         bool   `long:"bin" description:"include binary files in scan (default: text-only)"`
-	Severity    string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
-	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`
-	TemplateDir string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`
-	List        bool   `long:"list" description:"list available templates and exit"`
-	Validate    bool   `long:"validate" description:"validate templates and exit"`
-	Display     string `short:"d" long:"template-display" description:"display template content by ID or file path"`
+	Auto           bool   `long:"auto" description:"auto-detect OS and scan common sensitive directories"`
+	Bin            bool   `long:"bin" description:"include binary files in scan (default: text-only)"`
+	Severity       string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
+	MaxSize        string `long:"max-size" description:"max file size to process" default:"1Gb"`
+	TemplateDir    string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`
+	List           bool   `long:"list" description:"list available templates and exit"`
+	Validate       bool   `long:"validate" description:"validate templates and exit"`
+	Display        string `short:"d" long:"template-display" description:"display template content by ID or file path"`
+	Baseline string `long:"baseline" description:"load baseline file to suppress known findings"`
+	Findings string `short:"f" long:"findings" description:"save findings in baseline format (can be used as future --baseline input)"`
+	FailOn   string `long:"fail-on" description:"exit with code 1 if findings match severity (e.g. high,critical)"`
 }
 
 type TemplateOptions struct {

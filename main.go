@@ -42,6 +42,10 @@ Examples:
 	}
 
 	if err := cmd.Run(&opts); err != nil {
+		if exitErr, ok := err.(*cmd.ExitError); ok {
+			logs.Log.Warnf("%v", exitErr.Msg)
+			os.Exit(exitErr.Code)
+		}
 		logs.Log.Errorf("%v", err)
 		os.Exit(1)
 	}
