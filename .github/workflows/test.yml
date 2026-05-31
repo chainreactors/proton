@@ -27,13 +27,53 @@ jobs:
           GONOSUMDB: "github.com/chainreactors/*"
 
       - name: Build
-        run: go build -v ./...
+        run: go build -v -o found ./...
         env:
           GONOSUMCHECK: "github.com/chainreactors/*"
           GONOSUMDB: "github.com/chainreactors/*"
 
       - name: Test
         run: go test -v -count=1 ./...
+        env:
+          GONOSUMCHECK: "github.com/chainreactors/*"
+          GONOSUMDB: "github.com/chainreactors/*"
+
+      - name: Integration Test
+        run: |
+          mkdir -p /tmp/found-ci-test
+          echo 'REDIS_URL=redis://10.0.0.5:6379' > /tmp/found-ci-test/app.env
+          echo 'MONGO=mongodb://admin:pass@172.16.0.1:27017/db' >> /tmp/found-ci-test/app.env
+          echo 'JDBC=jdbc:mysql://root:secret@192.168.1.1:3306/prod' >> /tmp/found-ci-test/app.env
+
+          # Test text output
+          ./found -i /tmp/found-ci-test -t templates/extract/credential/ -q
+
+          # Test JSON output
+          ./found -i /tmp/found-ci-test -t templates/extract/credential/ -o json -q | head -1 | python3 -c "import sys,json; json.load(sys.stdin)"
+
+          # Test zombie output
+          ./found -i /tmp/found-ci-test -t templates/extract/credential/ -o zombie -s /tmp/targets.json -q
+          python3 -c "
+          import json, sys
+          targets = [json.loads(l) for l in open('/tmp/targets.json') if l.strip()]
+          assert len(targets) >= 2, f'expected >=2 zombie targets, got {len(targets)}'
+          services = {t['service'] for t in targets}
+          assert 'mongo' in services or 'mysql' in services, f'missing expected services: {services}'
+          print(f'OK: {len(targets)} zombie targets, services: {services}')
+          "
+
+          # Test baseline create + filter
+          ./found -i /tmp/found-ci-test -t templates/extract/credential/ -f /tmp/baseline.json -q
+          test -f /tmp/baseline.json && echo "baseline file created"
+          # With baseline loaded, known findings should be suppressed
+          NEW_COUNT=$(./found -i /tmp/found-ci-test -t templates/extract/credential/ --baseline /tmp/baseline.json -o json -q | wc -l)
+          echo "new findings after baseline: $NEW_COUNT (should be 0)"
+
+          # Test --fail-on (should exit 0 since no critical findings with these templates)
+          ./found -i /tmp/found-ci-test -t templates/extract/credential/ --fail-on critical -q
+
+          # Test validate
+          ./found --validate -t templates/found/keys/adafruit-key.yaml -q
         env:
           GONOSUMCHECK: "github.com/chainreactors/*"
           GONOSUMDB: "github.com/chainreactors/*"
