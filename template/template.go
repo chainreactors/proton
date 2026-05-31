@@ -1,4 +1,4 @@
-package templates
+package template
 
 import (
 	"github.com/chainreactors/neutron/protocols/executer"
