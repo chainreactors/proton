@@ -31,4 +31,4 @@ gen
 /release
 /bbin
 /script
-/v2/pkg/templates.go
+/v2/pkg/templates.goprotocols/file/bench_spray_vs_proton_test.go
