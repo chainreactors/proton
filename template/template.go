@@ -2,7 +2,7 @@ package template
 
 import (
 	"github.com/chainreactors/neutron/protocols/executer"
-	"github.com/chainreactors/proton/protocols/file"
+	"github.com/chainreactors/proton/proton/file"
 )
 
 type Template struct {

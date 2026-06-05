@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -149,35 +150,74 @@ func BenchmarkScanner_HighMatchRate(b *testing.B) {
 	}
 }
 
-func BenchmarkProcessFile_1KB(b *testing.B) {
-	dir := b.TempDir()
-	createBenchFiles(b, dir, 1, 1024, 0.05)
-	filePath := filepath.Join(dir, "file_00000.txt")
-	rules := makeBenchRules(5)
-	opts := &protocols.ExecuterOptions{Options: &protocols.Options{}}
-	scanner := NewScanner(rules, opts)
-	group := scanner.Groups[0]
+func BenchmarkProcessFile(b *testing.B) {
+	for _, tc := range []struct {
+		name      string
+		sizeBytes int
+		matchRate float64
+		rules     int
+	}{
+		{"1KB_5rules", 1024, 0.05, 5},
+		{"100KB_5rules", 100 * 1024, 0.01, 5},
+		{"1KB_50rules", 1024, 0.05, 50},
+		{"100KB_50rules", 100 * 1024, 0.01, 50},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			dir := b.TempDir()
+			createBenchFiles(b, dir, 1, tc.sizeBytes, tc.matchRate)
+			filePath := filepath.Join(dir, "file_00000.txt")
+			rules := makeBenchRules(tc.rules)
+			opts := &protocols.ExecuterOptions{Options: &protocols.Options{}}
+			scanner := NewScanner(rules, opts)
+			group := scanner.Groups[0]
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = scanner.processFile(filePath, group)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = scanner.processFile(filePath, group)
+			}
+		})
 	}
 }
 
-func BenchmarkProcessFile_100KB(b *testing.B) {
-	dir := b.TempDir()
-	createBenchFiles(b, dir, 1, 100*1024, 0.01)
-	filePath := filepath.Join(dir, "file_00000.txt")
-	rules := makeBenchRules(5)
-	opts := &protocols.ExecuterOptions{Options: &protocols.Options{}}
-	scanner := NewScanner(rules, opts)
-	group := scanner.Groups[0]
+func makeNaiveRegexps(count int) []*regexp.Regexp {
+	baseWords := []string{"password", "secret_key", "api_token", "private_key", "access_key"}
+	res := make([]*regexp.Regexp, count)
+	for i := 0; i < count; i++ {
+		word := baseWords[i%len(baseWords)]
+		res[i] = regexp.MustCompile(fmt.Sprintf(`%s\s*=\s*(\S+)`, word))
+	}
+	return res
+}
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = scanner.processFile(filePath, group)
+func BenchmarkNaiveFile(b *testing.B) {
+	for _, tc := range []struct {
+		name      string
+		sizeBytes int
+		matchRate float64
+		rules     int
+	}{
+		{"1KB_5rules", 1024, 0.05, 5},
+		{"100KB_5rules", 100 * 1024, 0.01, 5},
+		{"1KB_50rules", 1024, 0.05, 50},
+		{"100KB_50rules", 100 * 1024, 0.01, 50},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			dir := b.TempDir()
+			createBenchFiles(b, dir, 1, tc.sizeBytes, tc.matchRate)
+			filePath := filepath.Join(dir, "file_00000.txt")
+			regexps := makeNaiveRegexps(tc.rules)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				data, _ := os.ReadFile(filePath)
+				body := string(data)
+				for _, re := range regexps {
+					re.FindAllStringSubmatch(body, -1)
+				}
+			}
+		})
 	}
 }
 

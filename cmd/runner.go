@@ -13,7 +13,7 @@ import (
 	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
-	"github.com/chainreactors/proton/protocols/file"
+	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/template"
 	"gopkg.in/yaml.v3"
 )

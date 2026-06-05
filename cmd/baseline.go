@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chainreactors/logs"
-	"github.com/chainreactors/proton/protocols/file"
+	"github.com/chainreactors/proton/proton/file"
 )
 
 type Baseline struct {
