@@ -5,11 +5,11 @@ go 1.24.0
 toolchain go1.24.3
 
 require (
-	github.com/chainreactors/fingers v1.2.0
-	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
-	github.com/chainreactors/neutron v0.0.0-20260521032511-94073805bf61
-	github.com/chainreactors/proton v0.0.0-20260521032855-e7e7b12b4506
-	github.com/chainreactors/utils v0.0.0-20260520090033-cfefcb28cc6f
+	github.com/chainreactors/fingers v1.2.1-0.20260608084741-385e7d586d6f
+	github.com/chainreactors/logs v0.0.0-20260508055944-c678762ed15c
+	github.com/chainreactors/neutron v0.0.0-20260608084636-c81691731908
+	github.com/chainreactors/proton v0.2.1-0.20260608085216-03df34ba928d
+	github.com/chainreactors/utils v0.0.0-20260529172343-6465cb8568b2
 	github.com/gobwas/glob v0.2.3
 	github.com/jessevdk/go-flags v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -23,7 +23,6 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
-	github.com/chainreactors/files v0.0.0-20240716182835-7884ee1e77f0 // indirect
 	github.com/charlievieth/fastwalk v1.0.14 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/edsrzf/mmap-go v1.2.0 // indirect
@@ -59,4 +58,5 @@ require (
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
+	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 )
