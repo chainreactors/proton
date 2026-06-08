@@ -6,9 +6,9 @@ toolchain go1.24.3
 
 require (
 	github.com/chainreactors/fingers v1.2.0
-	github.com/chainreactors/logs v0.0.0-20250312104344-9f30fa69d3c9
-	github.com/chainreactors/neutron v0.0.0-20260521032511-94073805bf61
-	github.com/chainreactors/utils v0.0.0-20260520090033-cfefcb28cc6f
+	github.com/chainreactors/logs v0.0.0-20260508055944-c678762ed15c
+	github.com/chainreactors/neutron v0.0.0-20260608084155-300cd9e53fd7
+	github.com/chainreactors/utils v0.0.0-20260529172343-6465cb8568b2
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/gobwas/glob v0.2.3
@@ -29,7 +29,6 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
-	github.com/chainreactors/files v0.0.0-20240716182835-7884ee1e77f0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
