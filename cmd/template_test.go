@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/chainreactors/neutron/protocols"
+	"github.com/chainreactors/proton/template"
 )
 
 const testTemplateValid = `id: test-secret-key
@@ -64,7 +67,7 @@ file:
 const testTemplateBadSeverity = `id: bad-severity
 info:
   name: Bad Severity
-  severity: unknown
+  severity: bogus
   tags: test
 file:
   - extensions:
@@ -177,8 +180,8 @@ func TestLoadTemplatesMultiplePaths(t *testing.T) {
 
 func TestLoadLocalTemplatesWithCategories(t *testing.T) {
 	tmplDir := setupTestTemplateDir(t, map[string]string{
-		"keys/rule1.yaml":   testTemplateValid,
-		"custom/rule2.yaml": testTemplateValid2,
+		"found/keys/rule1.yaml":   testTemplateValid,
+		"found/custom/rule2.yaml": testTemplateValid2,
 	})
 
 	opts := &Options{}
@@ -197,10 +200,10 @@ func TestLoadLocalTemplatesWithCategories(t *testing.T) {
 	}
 }
 
-func TestLoadLocalTemplatesFallbackWalkAll(t *testing.T) {
+func TestLoadLocalTemplatesWithFoundCategoryLayout(t *testing.T) {
 	tmplDir := setupTestTemplateDir(t, map[string]string{
-		"rule1.yaml":        testTemplateValid,
-		"subdir/rule2.yaml": testTemplateValid2,
+		"found/keys/rule1.yaml":  testTemplateValid,
+		"found/spray/rule2.yaml": testTemplateValid2,
 	})
 
 	opts := &Options{}
@@ -209,10 +212,37 @@ func TestLoadLocalTemplatesFallbackWalkAll(t *testing.T) {
 
 	tmpls, err := loadTemplates(opts)
 	if err != nil {
-		t.Fatalf("loadTemplates failed: %v", err)
+		t.Fatalf("loadTemplates keys failed: %v", err)
 	}
-	if len(tmpls) != 2 {
-		t.Fatalf("expected 2 templates (fallback walk all), got %d", len(tmpls))
+	if len(tmpls) != 1 || tmpls[0].Id != "test-secret-key" {
+		t.Fatalf("expected only keys template, got %d", len(tmpls))
+	}
+
+	opts.Categories = []string{"spray"}
+	tmpls, err = loadTemplates(opts)
+	if err != nil {
+		t.Fatalf("loadTemplates spray failed: %v", err)
+	}
+	if len(tmpls) != 1 || tmpls[0].Id != "test-db-password" {
+		t.Fatalf("expected only spray template, got %d", len(tmpls))
+	}
+}
+
+func TestLoadLocalTemplatesRequiresFoundCategoryLayout(t *testing.T) {
+	tmplDir := setupTestTemplateDir(t, map[string]string{
+		"keys/rule1.yaml": testTemplateValid,
+		"rule2.yaml":      testTemplateValid2,
+	})
+
+	dirs := categoryTemplateDirs(tmplDir, []string{"keys"})
+	if len(dirs) != 1 || dirs[0] != filepath.Join(tmplDir, "found", "keys") {
+		t.Fatalf("expected only found/keys category dir, got %#v", dirs)
+	}
+
+	var tmpls []*template.Template
+	loaded := loadLocalTemplates(&tmpls, tmplDir, []string{"keys"}, &protocols.ExecuterOptions{Options: &protocols.Options{}})
+	if loaded || len(tmpls) != 0 {
+		t.Fatalf("expected no templates from non-found category layout, got %d", len(tmpls))
 	}
 }
 
@@ -330,7 +360,7 @@ func TestScanWithTemplateDir(t *testing.T) {
 		"rule1.yaml": testTemplateValid,
 	})
 	targetDir := setupTestTarget(t, map[string]string{
-		"app.conf": "SECRET_KEY=abcdefgh12345678\n",
+		"app.conf":  "SECRET_KEY=abcdefgh12345678\n",
 		"clean.txt": "nothing here\n",
 	})
 

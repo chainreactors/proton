@@ -65,7 +65,7 @@ func splitGlobBase(pattern string) (baseDir, globPattern string) {
 	}
 	// Find the last separator before the first metacharacter.
 	prefix := pattern[:metaIdx]
-	sepIdx := strings.LastIndex(prefix, string(os.PathSeparator))
+	sepIdx := strings.LastIndexAny(prefix, `/\`)
 	if sepIdx < 0 {
 		return ".", pattern
 	}

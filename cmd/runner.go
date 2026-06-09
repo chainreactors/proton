@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
+	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/template"
 	"gopkg.in/yaml.v3"
@@ -321,12 +321,19 @@ func loadTemplates(opts *Options) ([]*template.Template, error) {
 		if loadLocalTemplates(&tmpls, tmplDir, opts.Categories, execOpts) {
 			logs.Log.Debugf("Loaded templates from %s", tmplDir)
 		} else if loaded := loadEmbeddedTemplates(&tmpls, opts.Categories, execOpts); !loaded {
-			for _, cat := range opts.Categories {
-				catDir := filepath.Join(opts.TemplateDir, cat)
+			categoryDirs := categoryTemplateDirs(opts.TemplateDir, opts.Categories)
+			loadedCategory := false
+			for _, catDir := range categoryDirs {
 				if _, err := os.Stat(catDir); os.IsNotExist(err) {
-					return nil, fmt.Errorf("category directory not found: %s (use -t to specify template path)", catDir)
+					continue
 				}
-				loadFiltered(catDir)
+				loadedCategory = true
+				if err := loadFiltered(catDir); err != nil {
+					return nil, fmt.Errorf("loading template category %s: %v", catDir, err)
+				}
+			}
+			if !loadedCategory {
+				return nil, fmt.Errorf("category directory not found: %s (use -t to specify template path)", strings.Join(categoryDirs, ", "))
 			}
 		}
 	}
@@ -488,19 +495,9 @@ func listTemplates(opts *Options) error {
 		}
 	} else if localInfos := listLocalTemplateInfos(resolveTemplateDir(opts)); len(localInfos) > 0 {
 		infos = localInfos
-	} else if data := pkg.LoadConfig("found_keys"); len(data) > 0 {
-		var pocs []interface{}
-		if yaml.Unmarshal(data, &pocs) == nil {
-			for _, poc := range pocs {
-				bs, _ := yaml.Marshal(poc)
-				if ti := getTemplateInfoFromData(bs); ti != nil {
-					infos = append(infos, *ti)
-				}
-			}
-		}
+	} else if appendEmbeddedTemplateInfos(&infos, opts.Categories) {
 	} else {
-		for _, cat := range opts.Categories {
-			catDir := filepath.Join(opts.TemplateDir, cat)
+		for _, catDir := range categoryTemplateDirs(opts.TemplateDir, opts.Categories) {
 			filepath.Walk(catDir, func(p string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() || (!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml")) {
 					return nil
@@ -598,28 +595,68 @@ func buildExpressionRule(expressions []string, extFilter string, execOpts *proto
 	}, nil
 }
 
+func embeddedTemplateConfigs(categories []string) []string {
+	seen := make(map[string]bool)
+	var configs []string
+	for _, cat := range canonicalTemplateCategories(categories) {
+		name := "found_" + strings.ReplaceAll(cat, "/", "_")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		configs = append(configs, name)
+	}
+	return configs
+}
+
+func appendEmbeddedTemplateInfos(infos *[]templateInfo, categories []string) bool {
+	loaded := false
+	for _, config := range embeddedTemplateConfigs(categories) {
+		data := pkg.LoadConfig(config)
+		if len(data) == 0 {
+			continue
+		}
+		var pocs []interface{}
+		if yaml.Unmarshal(data, &pocs) != nil {
+			continue
+		}
+		for _, poc := range pocs {
+			bs, _ := yaml.Marshal(poc)
+			if ti := getTemplateInfoFromData(bs); ti != nil {
+				*infos = append(*infos, *ti)
+				loaded = true
+			}
+		}
+	}
+	return loaded
+}
+
 // loadEmbeddedTemplates loads templates from the embedded pkg.LoadConfig data.
 func loadEmbeddedTemplates(tmpls *[]*template.Template, categories []string, execOpts *protocols.ExecuterOptions) bool {
-	data := pkg.LoadConfig("found_keys")
-	if len(data) == 0 {
-		return false
-	}
-	var pocs []interface{}
-	if err := yaml.Unmarshal(data, &pocs); err != nil {
-		return false
-	}
-	for _, poc := range pocs {
-		bs, err := yaml.Marshal(poc)
-		if err != nil {
+	loaded := false
+	for _, config := range embeddedTemplateConfigs(categories) {
+		data := pkg.LoadConfig(config)
+		if len(data) == 0 {
 			continue
 		}
-		tmpl, err := parseTemplate("embedded", bs, execOpts)
-		if err != nil {
+		var pocs []interface{}
+		if err := yaml.Unmarshal(data, &pocs); err != nil {
 			continue
 		}
-		*tmpls = append(*tmpls, tmpl)
+		for _, poc := range pocs {
+			bs, err := yaml.Marshal(poc)
+			if err != nil {
+				continue
+			}
+			tmpl, err := parseTemplate("embedded:"+config, bs, execOpts)
+			if err != nil {
+				continue
+			}
+			*tmpls = append(*tmpls, tmpl)
+			loaded = true
+		}
 	}
-	return len(*tmpls) > 0
+	return loaded
 }
 
 type autoProfile struct {

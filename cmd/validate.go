@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/protocols"
+	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/proton/template"
 	"gopkg.in/yaml.v3"
 )
@@ -58,25 +58,27 @@ func findTemplateByID(id string, opts *Options) []byte {
 	}
 
 	// Search in embedded templates
-	raw := pkg.LoadConfig("found_keys")
-	if len(raw) == 0 {
-		return nil
-	}
-	var pocs []interface{}
-	if yaml.Unmarshal(raw, &pocs) != nil {
-		return nil
-	}
-	for _, poc := range pocs {
-		bs, err := yaml.Marshal(poc)
-		if err != nil {
+	for _, config := range embeddedTemplateConfigs([]string{"all"}) {
+		raw := pkg.LoadConfig(config)
+		if len(raw) == 0 {
 			continue
 		}
-		var tmpl template.Template
-		if yaml.Unmarshal(bs, &tmpl) != nil {
+		var pocs []interface{}
+		if yaml.Unmarshal(raw, &pocs) != nil {
 			continue
 		}
-		if tmpl.Id == id {
-			return bs
+		for _, poc := range pocs {
+			bs, err := yaml.Marshal(poc)
+			if err != nil {
+				continue
+			}
+			var tmpl template.Template
+			if yaml.Unmarshal(bs, &tmpl) != nil {
+				continue
+			}
+			if tmpl.Id == id {
+				return bs
+			}
 		}
 	}
 	return nil
@@ -113,6 +115,7 @@ var validSeverities = map[string]bool{
 	"medium":   true,
 	"low":      true,
 	"info":     true,
+	"unknown":  true,
 }
 
 type validateResult struct {
@@ -211,31 +214,39 @@ func validateSingleFile(path string) validateResult {
 }
 
 func validateEmbedded() []validateResult {
-	data := pkg.LoadConfig("found_keys")
-	if len(data) == 0 {
-		return []validateResult{{path: "embedded", errors: []string{"no embedded templates found"}}}
-	}
-
-	var pocs []interface{}
-	if err := yaml.Unmarshal(data, &pocs); err != nil {
-		return []validateResult{{path: "embedded", errors: []string{fmt.Sprintf("parse embedded data: %v", err)}}}
-	}
-
 	var results []validateResult
-	for i, poc := range pocs {
-		bs, err := yaml.Marshal(poc)
-		if err != nil {
+	for _, config := range embeddedTemplateConfigs([]string{"all"}) {
+		data := pkg.LoadConfig(config)
+		if len(data) == 0 {
+			continue
+		}
+		var pocs []interface{}
+		if err := yaml.Unmarshal(data, &pocs); err != nil {
 			results = append(results, validateResult{
-				path:   fmt.Sprintf("embedded[%d]", i),
-				errors: []string{fmt.Sprintf("marshal error: %v", err)},
+				path:   "embedded:" + config,
+				errors: []string{fmt.Sprintf("parse embedded data: %v", err)},
 			})
 			continue
 		}
-		r := validateTemplateData(fmt.Sprintf("embedded[%d]", i), bs)
-		if r.id != "" {
-			r.path = fmt.Sprintf("embedded:%s", r.id)
+
+		for i, poc := range pocs {
+			bs, err := yaml.Marshal(poc)
+			if err != nil {
+				results = append(results, validateResult{
+					path:   fmt.Sprintf("embedded:%s[%d]", config, i),
+					errors: []string{fmt.Sprintf("marshal error: %v", err)},
+				})
+				continue
+			}
+			r := validateTemplateData(fmt.Sprintf("embedded:%s[%d]", config, i), bs)
+			if r.id != "" {
+				r.path = fmt.Sprintf("embedded:%s", r.id)
+			}
+			results = append(results, r)
 		}
-		results = append(results, r)
+	}
+	if len(results) == 0 {
+		return []validateResult{{path: "embedded", errors: []string{"no embedded templates found"}}}
 	}
 	return results
 }
@@ -274,7 +285,7 @@ func validateTemplateData(name string, data []byte) validateResult {
 		r.warnings = append(r.warnings, "missing info.severity field")
 	} else if !validSeverities[sev] {
 		r.valid = false
-		r.errors = append(r.errors, fmt.Sprintf("invalid severity %q, must be one of: critical, high, medium, low, info", tmpl.Info.Severity))
+		r.errors = append(r.errors, fmt.Sprintf("invalid severity %q, must be one of: critical, high, medium, low, info, unknown", tmpl.Info.Severity))
 	}
 
 	if len(tmpl.RequestsFile) > 0 {

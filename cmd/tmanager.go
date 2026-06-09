@@ -170,8 +170,57 @@ func countTemplateFiles(dir string) int {
 	return count
 }
 
-// loadLocalTemplates loads templates from the local template directory.
-// It tries category subdirectories first; if none match, walks the entire directory.
+func categoryTemplateDirs(tmplDir string, categories []string) []string {
+	seen := make(map[string]bool)
+	var dirs []string
+	for _, cat := range canonicalTemplateCategories(categories) {
+		dir := filepath.Join(tmplDir, filepath.FromSlash("found/"+cat))
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+func canonicalTemplateCategories(categories []string) []string {
+	if len(categories) == 0 {
+		categories = []string{"keys"}
+	}
+
+	seen := make(map[string]bool)
+	var canonical []string
+	add := func(cat string) {
+		if cat == "" || seen[cat] {
+			return
+		}
+		seen[cat] = true
+		canonical = append(canonical, cat)
+	}
+
+	for _, cat := range categories {
+		cat = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(cat, `\`, `/`)), `/`))
+		switch cat {
+		case "":
+			continue
+		case "all":
+			add("keys")
+			add("spray")
+		case "key", "keys", "found/keys", "found_keys":
+			add("keys")
+		case "spray", "found/spray", "found_spray":
+			add("spray")
+		default:
+			cat = strings.TrimPrefix(cat, "found/")
+			cat = strings.TrimPrefix(cat, "found_")
+			add(cat)
+		}
+	}
+	return canonical
+}
+
+// loadLocalTemplates loads templates from found category directories in the local template directory.
 // Returns true if any templates were loaded.
 func loadLocalTemplates(tmpls *[]*template.Template, tmplDir string, categories []string, execOpts *protocols.ExecuterOptions) bool {
 	if _, err := os.Stat(tmplDir); os.IsNotExist(err) {
@@ -179,18 +228,9 @@ func loadLocalTemplates(tmpls *[]*template.Template, tmplDir string, categories 
 	}
 
 	var loaded bool
-	for _, cat := range categories {
-		catDir := filepath.Join(tmplDir, cat)
+	for _, catDir := range categoryTemplateDirs(tmplDir, categories) {
 		if info, err := os.Stat(catDir); err == nil && info.IsDir() {
 			ts, _ := loadFromPath(catDir, execOpts)
-			*tmpls = append(*tmpls, ts...)
-			loaded = true
-		}
-	}
-
-	if !loaded {
-		ts, _ := loadFromPath(tmplDir, execOpts)
-		if len(ts) > 0 {
 			*tmpls = append(*tmpls, ts...)
 			loaded = true
 		}
