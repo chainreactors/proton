@@ -321,10 +321,14 @@ func buildGroupPrefilter(templates []*ruleRef) *linePrefilter {
 // relevantSources returns indices into patternSources that may match the line.
 // Uses a reusable bitset to avoid per-line allocation.
 func (idx *patternIndex) relevantSources(line string, buf *[]int, seen []bool) []int {
+	return idx.relevantSourcesBytes([]byte(strings.ToLower(line)), buf, seen)
+}
+
+func (idx *patternIndex) relevantSourcesBytes(lower []byte, buf *[]int, seen []bool) []int {
 	if idx == nil || idx.ac == nil {
 		return idx.fallbackSources
 	}
-	hits := idx.ac.FindAll([]byte(strings.ToLower(line)), -1)
+	hits := idx.ac.FindAll(lower, -1)
 	if len(hits) == 0 && len(idx.fallbackSources) == 0 {
 		return nil
 	}
@@ -343,7 +347,6 @@ func (idx *patternIndex) relevantSources(line string, buf *[]int, seen []bool) [
 			result = append(result, srcIdx)
 		}
 	}
-	// Reset seen bits for next call
 	for _, srcIdx := range result {
 		seen[srcIdx] = false
 	}

@@ -175,6 +175,26 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 		step = MemWindowSize
 	}
 
+	// reusable buffer for ASCII-lowercased window (avoids alloc per window)
+	lowerBuf := make([]byte, MemWindowSize)
+
+	hasWordOrBinary := false
+	for _, tmplRef := range group.Templates {
+		if tmplRef.Request.CompiledOperators == nil {
+			continue
+		}
+		for _, m := range tmplRef.Request.CompiledOperators.Matchers {
+			t := m.GetType()
+			if t == operators.WordsMatcher || t == operators.BinaryMatcher {
+				hasWordOrBinary = true
+				break
+			}
+		}
+		if hasWordOrBinary {
+			break
+		}
+	}
+
 	for offset := 0; offset < len(data); {
 		end := offset + MemWindowSize
 		if end > len(data) {
@@ -193,9 +213,11 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 			continue
 		}
 
-		windowStr := string(window)
+		// AC index: lowercase in-place into reusable buffer
+		lower := lowerBuf[:len(window)]
+		asciiLowerInto(lower, window)
 
-		relevant := group.index.relevantSources(windowStr, &srcBuf, srcSeen)
+		relevant := group.index.relevantSourcesBytes(lower, &srcBuf, srcSeen)
 		for _, srcIdx := range relevant {
 			src := &group.patternSources[srcIdx]
 			re := getOrCompileRE2(src.Pattern)
@@ -203,10 +225,10 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 				continue
 			}
 			if src.IsExtractor {
-				matches := re.FindAllStringSubmatch(windowStr, -1)
-				locs := re.FindAllStringIndex(windowStr, -1)
+				subs := re.FindAllSubmatch(window, -1)
+				locs := re.FindAllIndex(window, -1)
 				groupIdx := src.RegexGroup
-				for i, m := range matches {
+				for i, m := range subs {
 					if len(m) <= groupIdx {
 						continue
 					}
@@ -221,10 +243,10 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 					res := &results[src.TemplateIdx]
 					res.extractorHits[src.OperatorIdx] = append(
 						res.extractorHits[src.OperatorIdx],
-						matchHit{Value: m[groupIdx], Line: 0, Offset: int(matchAddr)})
+						matchHit{Value: string(m[groupIdx]), Line: 0, Offset: int(matchAddr)})
 				}
 			} else {
-				locs := re.FindAllStringIndex(windowStr, -1)
+				locs := re.FindAllIndex(window, -1)
 				for _, loc := range locs {
 					if offset+loc[0] >= ownedEnd && end != len(data) {
 						continue
@@ -233,32 +255,36 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 					res := &results[src.TemplateIdx]
 					res.matcherHits[src.OperatorIdx] = append(
 						res.matcherHits[src.OperatorIdx],
-						matchHit{Value: windowStr[loc[0]:loc[1]], Line: 0, Offset: int(matchAddr)})
+						matchHit{Value: string(window[loc[0]:loc[1]]), Line: 0, Offset: int(matchAddr)})
 				}
 			}
 		}
 
-		for tmplIdx, tmplRef := range group.Templates {
-			req := tmplRef.Request
-			if req.CompiledOperators == nil {
-				continue
-			}
-			for matcherIdx, matcher := range req.CompiledOperators.Matchers {
-				switch matcher.GetType() {
-				case operators.WordsMatcher:
-					if matched, words := req.matchWordsOnCorpus(matcher, windowStr); matched {
-						for _, w := range words {
-							results[tmplIdx].matcherHits[matcherIdx] = append(
-								results[tmplIdx].matcherHits[matcherIdx],
-								matchHit{Value: w, Line: 0, Offset: int(virtAddr)})
+		// word/binary matchers need string; only convert when necessary
+		if hasWordOrBinary {
+			windowStr := string(window)
+			for tmplIdx, tmplRef := range group.Templates {
+				req := tmplRef.Request
+				if req.CompiledOperators == nil {
+					continue
+				}
+				for matcherIdx, matcher := range req.CompiledOperators.Matchers {
+					switch matcher.GetType() {
+					case operators.WordsMatcher:
+						if matched, words := req.matchWordsOnCorpus(matcher, windowStr); matched {
+							for _, w := range words {
+								results[tmplIdx].matcherHits[matcherIdx] = append(
+									results[tmplIdx].matcherHits[matcherIdx],
+									matchHit{Value: w, Line: 0, Offset: int(virtAddr)})
+							}
 						}
-					}
-				case operators.BinaryMatcher:
-					if matched, bins := matcher.MatchBinary(windowStr); matched {
-						for _, b := range bins {
-							results[tmplIdx].matcherHits[matcherIdx] = append(
-								results[tmplIdx].matcherHits[matcherIdx],
-								matchHit{Value: b, Line: 0, Offset: int(virtAddr)})
+					case operators.BinaryMatcher:
+						if matched, bins := matcher.MatchBinary(windowStr); matched {
+							for _, b := range bins {
+								results[tmplIdx].matcherHits[matcherIdx] = append(
+									results[tmplIdx].matcherHits[matcherIdx],
+									matchHit{Value: b, Line: 0, Offset: int(virtAddr)})
+							}
 						}
 					}
 				}
@@ -280,4 +306,14 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 	}
 	s.putFileResults(results)
 	return findings
+}
+
+func asciiLowerInto(dst, src []byte) {
+	for i, b := range src {
+		if b >= 'A' && b <= 'Z' {
+			dst[i] = b + ('a' - 'A')
+		} else {
+			dst[i] = b
+		}
+	}
 }
