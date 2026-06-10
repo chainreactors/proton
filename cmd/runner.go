@@ -52,8 +52,8 @@ func Run(opts *Options) error {
 	if opts.Input != "" {
 		targets = append(targets, opts.Input)
 	}
-	if len(targets) == 0 {
-		return fmt.Errorf("target (-i) or --auto is required, run 'found --help' for usage")
+	if len(targets) == 0 && opts.PID == 0 {
+		return fmt.Errorf("target (-i), --auto, or --pid is required, run 'found --help' for usage")
 	}
 
 	var tmpls []*template.Template
@@ -104,7 +104,10 @@ func Run(opts *Options) error {
 		}
 	}
 
-	baseDir := targets[0]
+	var baseDir string
+	if len(targets) > 0 {
+		baseDir = targets[0]
+	}
 	if opts.Input != "" {
 		baseDir = opts.Input
 	}
@@ -221,6 +224,19 @@ func Run(opts *Options) error {
 			if saveWriter != nil {
 				saveWriter.WriteFinding(f)
 			}
+		}
+	}
+
+	if opts.PID > 0 {
+		memOpts := file.MemoryScanOptions{ScanAll: opts.MemAll}
+		if !opts.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Scanning process memory: PID %d", opts.PID)
+		}
+		if err := scanner.ScanProcess(opts.PID, memOpts, handleFinding); err != nil {
+			if len(targets) == 0 {
+				return fmt.Errorf("memory scan failed: %v", err)
+			}
+			logs.Log.Warnf("memory scan: %v", err)
 		}
 	}
 
@@ -771,11 +787,20 @@ func startProgress(scanner *file.Scanner) func() {
 				return
 			case <-ticker.C:
 				files := atomic.LoadInt64(&scanner.Stats.Files)
+				regions := atomic.LoadInt64(&scanner.Stats.Regions)
 				bytes := atomic.LoadInt64(&scanner.Stats.Bytes)
 				findings := atomic.LoadInt64(&scanner.Stats.Findings)
 				elapsed := time.Since(start).Round(100 * time.Millisecond)
-				fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d files (%s) | %d findings | %s",
-					files, progressBytes(bytes), findings, elapsed)
+				if regions > 0 && files > 0 {
+					fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d files + %d regions (%s) | %d findings | %s",
+						files, regions, progressBytes(bytes), findings, elapsed)
+				} else if regions > 0 {
+					fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d regions (%s) | %d findings | %s",
+						regions, progressBytes(bytes), findings, elapsed)
+				} else {
+					fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d files (%s) | %d findings | %s",
+						files, progressBytes(bytes), findings, elapsed)
+				}
 			}
 		}
 	}()

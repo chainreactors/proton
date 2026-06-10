@@ -35,6 +35,8 @@ type OutputOptions struct {
 type ScanOptions struct {
 	Auto        bool   `long:"auto" description:"auto-detect OS and scan common sensitive directories"`
 	Bin         bool   `long:"bin" description:"include binary files in scan (default: text-only)"`
+	PID         int    `long:"pid" description:"scan process memory by PID"`
+	MemAll      bool   `long:"mem" description:"scan all readable memory regions (default: writable/anonymous only)"`
 	Severity    string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
 	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`
 	TemplateDir string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`

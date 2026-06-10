@@ -1,6 +1,8 @@
 module github.com/chainreactors/proton
 
-go 1.17
+go 1.22.0
+
+toolchain go1.24.3
 
 require (
 	github.com/chainreactors/fingers v1.2.0
@@ -15,6 +17,7 @@ require (
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/stretchr/testify v1.10.0
 	github.com/wasilibs/go-re2 v1.10.0
+	golang.org/x/sys v0.30.0
 	gopkg.in/yaml.v3 v3.0.1
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -41,5 +44,4 @@ require (
 	github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/sys v0.30.0 // indirect
 )

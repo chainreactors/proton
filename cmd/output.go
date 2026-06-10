@@ -66,13 +66,19 @@ func (o *outputWriter) WriteFinding(f Finding) {
 			name, marker, tid, relPath)
 	}
 
+	isMemory := strings.HasPrefix(f.FilePath, "pid:")
+
 	for name, events := range f.Matches {
 		for _, ev := range events {
 			val := ev.Value
 			if len(val) > 200 {
 				val = val[:200] + "..."
 			}
-			fmt.Fprintf(o.w, "   [%s] [L%d] %s\n", name, ev.Line, val)
+			if isMemory {
+				fmt.Fprintf(o.w, "   [%s] [0x%x] %s\n", name, ev.Offset, val)
+			} else {
+				fmt.Fprintf(o.w, "   [%s] [L%d] %s\n", name, ev.Line, val)
+			}
 		}
 	}
 
@@ -81,7 +87,11 @@ func (o *outputWriter) WriteFinding(f Finding) {
 		if len(val) > 200 {
 			val = val[:200] + "..."
 		}
-		fmt.Fprintf(o.w, "   [L%d] %s\n", ev.Line, val)
+		if isMemory {
+			fmt.Fprintf(o.w, "   [0x%x] %s\n", ev.Offset, val)
+		} else {
+			fmt.Fprintf(o.w, "   [L%d] %s\n", ev.Line, val)
+		}
 	}
 	fmt.Fprintln(o.w)
 }
@@ -115,8 +125,16 @@ func severityMarker(s string, color bool) string {
 
 func printSummary(stats file.ScanStats, findingCount int, elapsed time.Duration, sevCount map[string]int, color bool, suppressed int) {
 	logs.Log.Console(strings.Repeat("─", 60) + "\n")
-	logs.Log.Consolef("Rules: %d | Files: %d (%s) | Time: %s | Findings: %d\n",
-		stats.Rules, stats.Files, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
+	if stats.Regions > 0 && stats.Files > 0 {
+		logs.Log.Consolef("Rules: %d | Files: %d | Regions: %d (%s) | Time: %s | Findings: %d\n",
+			stats.Rules, stats.Files, stats.Regions, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
+	} else if stats.Regions > 0 {
+		logs.Log.Consolef("Rules: %d | Regions: %d (%s) | Time: %s | Findings: %d\n",
+			stats.Rules, stats.Regions, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
+	} else {
+		logs.Log.Consolef("Rules: %d | Files: %d (%s) | Time: %s | Findings: %d\n",
+			stats.Rules, stats.Files, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
+	}
 	if findingCount == 0 && suppressed == 0 {
 		logs.Log.Console("No findings detected.\n")
 		return

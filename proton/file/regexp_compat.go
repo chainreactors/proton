@@ -5,5 +5,6 @@ package file
 type compiledRegexp interface {
 	MatchString(s string) bool
 	FindAllString(s string, n int) []string
+	FindAllStringIndex(s string, n int) [][]int
 	FindAllStringSubmatch(s string, n int) [][]string
 }

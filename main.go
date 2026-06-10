@@ -20,6 +20,8 @@ Examples:
   found -i ~/projects                        Scan with default key templates
   found --auto                               Auto-detect OS and scan sensitive dirs
   found --auto --collect findings.zip         Auto-scan and package results
+  found --pid 1234                           Scan process memory by PID
+  found --pid 1234 --mem                     Scan all memory regions (including libs)
   found -i ~/projects --severity high        Only show high severity findings
   found -i ~/projects -j -s out.json         Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file

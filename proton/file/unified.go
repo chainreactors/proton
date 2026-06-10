@@ -88,6 +88,7 @@ type Finding struct {
 
 type ScanStats struct {
 	Files    int64
+	Regions  int64
 	Bytes    int64
 	Findings int64
 	Rules    int
