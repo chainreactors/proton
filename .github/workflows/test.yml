@@ -21,6 +21,12 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Sync go.mod for current toolchain
+        run: go mod tidy
+        env:
+          GONOSUMCHECK: "github.com/chainreactors/*"
+          GONOSUMDB: "github.com/chainreactors/*"
+
       - name: Generate
         run: go generate ./...
         env:

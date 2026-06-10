@@ -8,17 +8,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
-	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	oldarchiver "github.com/mholt/archiver"
-	"github.com/mholt/archives"
 )
 
 const archiveBenchFileCount = 100
@@ -172,41 +169,7 @@ func readAllStdlibZip(path string) (int, int) {
 	return files, totalBytes
 }
 
-// --- mholt/archives approach ---
-
-func readAllArchivesExtract(path string) (int, int) {
-	f, _ := os.Open(path)
-	defer f.Close()
-	format, _, _ := archives.Identify(context.Background(), path, f)
-	if format == nil {
-		return 0, 0
-	}
-	f.Seek(0, 0)
-	ex, ok := format.(archives.Extractor)
-	if !ok {
-		return 0, 0
-	}
-	files, totalBytes := 0, 0
-	ex.Extract(context.Background(), f, func(ctx context.Context, fi archives.FileInfo) error {
-		if fi.IsDir() {
-			return nil
-		}
-		rc, err := fi.Open()
-		if err != nil {
-			return nil
-		}
-		defer rc.Close()
-		data, _ := io.ReadAll(rc)
-		totalBytes += len(data)
-		if bytes.Contains(data, []byte("password")) {
-			files++
-		}
-		return nil
-	})
-	return files, totalBytes
-}
-
-// --- mholt/archiver v3 approach (current) ---
+// --- mholt/archiver v3 approach ---
 
 func readAllArchiverV3(path string) (int, int) {
 	archiveReader, _ := oldarchiver.ByExtension(path)
@@ -248,37 +211,6 @@ func readAllArchiverV3(path string) (int, int) {
 	return files, totalBytes
 }
 
-// --- ArchiveFS approach (mholt/archives) ---
-
-func readAllArchiveFS(path string) (int, int) {
-	f, _ := os.Open(path)
-	defer f.Close()
-
-	fsys, err := archives.FileSystem(context.Background(), path, f)
-	if err != nil {
-		return 0, 0
-	}
-
-	files, totalBytes := 0, 0
-	fs.WalkDir(fsys, ".", func(entryPath string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		ef, err := fsys.Open(entryPath)
-		if err != nil {
-			return nil
-		}
-		defer ef.Close()
-		data, _ := io.ReadAll(ef)
-		totalBytes += len(data)
-		if bytes.Contains(data, []byte("password")) {
-			files++
-		}
-		return nil
-	})
-	return files, totalBytes
-}
-
 // === Benchmarks ===
 
 func BenchmarkArchive_Tar(b *testing.B) {
@@ -288,26 +220,6 @@ func BenchmarkArchive_Tar(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			files, bytes := readAllStdlibTar(tarPath)
-			if files != archiveBenchFileCount || bytes == 0 {
-				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
-			}
-		}
-	})
-
-	b.Run("archives_Extract", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			files, bytes := readAllArchivesExtract(tarPath)
-			if files != archiveBenchFileCount || bytes == 0 {
-				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
-			}
-		}
-	})
-
-	b.Run("archives_FS", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			files, bytes := readAllArchiveFS(tarPath)
 			if files != archiveBenchFileCount || bytes == 0 {
 				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
 			}
@@ -338,16 +250,6 @@ func BenchmarkArchive_TarGz(b *testing.B) {
 		}
 	})
 
-	b.Run("archives_Extract", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			files, bytes := readAllArchivesExtract(tgzPath)
-			if files != archiveBenchFileCount || bytes == 0 {
-				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
-			}
-		}
-	})
-
 	b.Run("archiver_v3", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -366,26 +268,6 @@ func BenchmarkArchive_Zip(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			files, bytes := readAllStdlibZip(zipPath)
-			if files != archiveBenchFileCount || bytes == 0 {
-				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
-			}
-		}
-	})
-
-	b.Run("archives_Extract", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			files, bytes := readAllArchivesExtract(zipPath)
-			if files != archiveBenchFileCount || bytes == 0 {
-				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
-			}
-		}
-	})
-
-	b.Run("archives_FS", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			files, bytes := readAllArchiveFS(zipPath)
 			if files != archiveBenchFileCount || bytes == 0 {
 				b.Fatalf("unexpected: files=%d bytes=%d", files, bytes)
 			}

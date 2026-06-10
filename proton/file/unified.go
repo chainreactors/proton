@@ -605,7 +605,7 @@ const maxArchiveEntries = 10000
 const maxArchiveEntrySize = 100 * 1024 * 1024
 
 // processArchive scans files inside an archive.
-// Uses stdlib for tar/gz/zip (fastest), falls back to mholt/archives for other formats.
+// Uses stdlib for tar/gz/zip (fastest), falls back to mholt/archiver v3 for other formats.
 func (s *Scanner) processArchive(archivePath string, group *scanGroup) []Finding {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 

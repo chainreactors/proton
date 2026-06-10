@@ -4,18 +4,16 @@
 package file
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/chainreactors/neutron/operators"
 	"github.com/charlievieth/fastwalk"
-	"github.com/mholt/archives"
+	"github.com/mholt/archiver"
 	regexp "github.com/wasilibs/go-re2"
 )
 
@@ -127,30 +125,24 @@ func (request *Request) extractRegexRE2(extractor *operators.Extractor, corpus s
 	return results
 }
 
-// --- archive fallback (mholt/archives) ---
+// --- archive fallback (mholt/archiver v3) ---
 
 func (s *Scanner) scanArchiveFallback(archivePath string, group *scanGroup) []Finding {
-	f, err := os.Open(archivePath)
-	if err != nil {
+	ar, _ := archiver.ByExtension(archivePath)
+	if ar == nil {
 		return nil
 	}
-	defer f.Close()
-	format, _, err := archives.Identify(context.Background(), archivePath, f)
-	if err != nil || format == nil {
-		return nil
-	}
-	f.Seek(0, 0)
-	ex, ok := format.(archives.Extractor)
+	walker, ok := ar.(archiver.Walker)
 	if !ok {
 		return nil
 	}
 	var findings []Finding
 	entries := 0
-	ex.Extract(context.Background(), f, func(ctx context.Context, fi archives.FileInfo) error {
-		if fi.IsDir() || fi.Size() == 0 || fi.Size() > maxArchiveEntrySize {
+	_ = walker.Walk(archivePath, func(f archiver.File) error {
+		if f.IsDir() || f.Size() == 0 || f.Size() > maxArchiveEntrySize {
 			return nil
 		}
-		entryExt := filepath.Ext(fi.Name())
+		entryExt := filepath.Ext(f.Name())
 		if _, deny := alwaysDenyExts[entryExt]; deny {
 			return nil
 		}
@@ -158,16 +150,12 @@ func (s *Scanner) scanArchiveFallback(archivePath string, group *scanGroup) []Fi
 		if entries > maxArchiveEntries {
 			return fmt.Errorf("too many entries")
 		}
-		rc, err := fi.Open()
-		if err != nil {
-			return nil
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(io.LimitReader(rc, maxArchiveEntrySize))
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, maxArchiveEntrySize))
 		if err != nil || len(data) == 0 {
 			return nil
 		}
-		entryPath := fmt.Sprintf("%s:%s", archivePath, fi.Name())
+		entryPath := fmt.Sprintf("%s:%s", archivePath, f.Name())
 		findings = append(findings, s.scanData(data, entryPath, group)...)
 		return nil
 	})
