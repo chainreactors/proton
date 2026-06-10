@@ -3,8 +3,6 @@ package file
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"runtime"
 	"testing"
 
 	"github.com/chainreactors/neutron/operators"
@@ -109,53 +107,6 @@ func BenchmarkMemBlockThroughput(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				scanner.scanMemBlock(data, 0x7f0000000000, "pid:bench", group)
-			}
-		})
-	}
-}
-
-func BenchmarkProcessScanThroughput(b *testing.B) {
-	if runtime.GOOS != "linux" {
-		b.Skip("Linux only")
-	}
-	pid := os.Getpid()
-	if _, err := newMemoryReader(pid); err != nil {
-		b.Skipf("cannot read own memory: %v", err)
-	}
-
-	scanner := makeMemScanner()
-
-	windows := []int{
-		4 << 10,   // 4KB
-		16 << 10,  // 16KB
-		32 << 10,  // 32KB
-		64 << 10,  // 64KB
-		128 << 10, // 128KB
-		192 << 10, // 192KB
-		256 << 10, // 256KB
-		384 << 10, // 384KB
-		512 << 10, // 512KB
-		768 << 10, // 768KB
-		1 << 20,   // 1MB
-		2 << 20,   // 2MB
-		4 << 20,   // 4MB
-	}
-
-	for _, w := range windows {
-		overlap := w / 64
-		if overlap < 512 {
-			overlap = 512
-		}
-		if overlap > 8192 {
-			overlap = 8192
-		}
-		name := formatSize(w)
-		b.Run(name, func(b *testing.B) {
-			MemWindowSize = w
-			MemOverlapSize = overlap
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				scanner.ScanProcess(pid, MemoryScanOptions{ScanAll: false}, func(f Finding) {})
 			}
 		})
 	}

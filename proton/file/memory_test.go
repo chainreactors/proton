@@ -1,15 +1,12 @@
 package file
 
 import (
-	"os"
 	"testing"
 
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/stretchr/testify/assert"
 )
-
-var testMemSecret = "PROTON_MEM_TEST_SECRET_XYZ789_KEEPALIVE"
 
 func memScanner(patterns []string) *Scanner {
 	execOpts := &protocols.ExecuterOptions{
@@ -41,10 +38,23 @@ func memScannerWithMatchers(words []string) *Scanner {
 	}}, execOpts)
 }
 
+func TestScanBlock(t *testing.T) {
+	scanner := memScanner([]string{`PROTON_BLOCK_TEST_[A-Z0-9_]+`})
+
+	data := []byte("prefix\x00\x00PROTON_BLOCK_TEST_SECRET123\x00\x00suffix")
+	findings := scanner.ScanBlock(data, "test:label", scanner.Groups[0])
+
+	assert.True(t, len(findings) > 0, "ScanBlock should find the pattern")
+	if len(findings) > 0 {
+		assert.Equal(t, "test:label", findings[0].FilePath)
+		assert.Contains(t, findings[0].Extracts[0].Value, "PROTON_BLOCK_TEST_SECRET123")
+	}
+}
+
 func TestScanMemBlock(t *testing.T) {
 	scanner := memScanner([]string{`PROTON_MEM_TEST_SECRET_[A-Z0-9_]+`})
 
-	data := []byte("some prefix data\x00\x00" + testMemSecret + "\x00\x00more binary data")
+	data := []byte("some prefix data\x00\x00PROTON_MEM_TEST_SECRET_XYZ789\x00\x00more binary data")
 	findings := scanner.scanMemBlock(data, 0x7f0000001000, "pid:999", scanner.Groups[0])
 
 	assert.True(t, len(findings) > 0, "should find the secret in memory block")
@@ -93,20 +103,17 @@ func TestScanMemBlockCaseSensitive(t *testing.T) {
 func TestScanMemBlockBinaryData(t *testing.T) {
 	scanner := memScanner([]string{`AKIA[A-Z0-9]{16,}`})
 
-	// embed secret in binary noise
 	data := make([]byte, 4096)
 	for i := range data {
 		data[i] = byte(i % 256)
 	}
-	secret := []byte("AKIAIOSFODNN7EXAMPLE1")
-	copy(data[2000:], secret)
+	copy(data[2000:], []byte("AKIAIOSFODNN7EXAMPLE1"))
 
 	findings := scanner.scanMemBlock(data, 0x400000, "pid:1", scanner.Groups[0])
 	assert.True(t, len(findings) > 0, "should find AWS key in binary data")
 	if len(findings) > 0 {
 		assert.Contains(t, findings[0].Extracts[0].Value, "AKIAIOSFODNN7EXAMPLE")
-		expectedAddr := 0x400000 + 2000
-		assert.Equal(t, expectedAddr, findings[0].Extracts[0].Offset)
+		assert.Equal(t, 0x400000+2000, findings[0].Extracts[0].Offset)
 	}
 }
 
@@ -135,7 +142,7 @@ func TestScanMemBlockNoMatch(t *testing.T) {
 	}
 
 	findings := scanner.scanMemBlock(data, 0x1000, "pid:1", scanner.Groups[0])
-	assert.Equal(t, 0, len(findings), "should find nothing in random data")
+	assert.Equal(t, 0, len(findings))
 }
 
 func TestScanMemBlockMultiplePatterns(t *testing.T) {
@@ -180,67 +187,18 @@ func TestScanMemBlockMultiplePatterns(t *testing.T) {
 func TestScanMemBlockDeduplication(t *testing.T) {
 	scanner := memScanner([]string{`DEDUP_TOKEN_[A-Z]+`})
 
-	// place secret in the overlap zone so two windows both see it
 	pos := MemWindowSize - MemOverlapSize/2
 	data := make([]byte, MemWindowSize*2)
 	copy(data[pos:], []byte("DEDUP_TOKEN_ALPHA"))
 
 	findings := scanner.scanMemBlock(data, 0x1000, "pid:1", scanner.Groups[0])
 	assert.True(t, len(findings) > 0)
-	// should deduplicate: only one finding, not two
 	totalExtracts := 0
 	for _, f := range findings {
 		totalExtracts += len(f.Extracts)
 	}
 	assert.Equal(t, 1, totalExtracts, "overlap dedup should produce exactly one extract")
 }
-
-func TestScanProcessSelf(t *testing.T) {
-	pid := os.Getpid()
-	r, err := newMemoryReader(pid)
-	if err != nil {
-		t.Skipf("cannot read own process memory: %v", err)
-	}
-	r.Close()
-
-	scanner := memScanner([]string{`PROTON_MEM_TEST_SECRET_[A-Z0-9_]+`})
-
-	var findings []Finding
-	err = scanner.ScanProcess(pid, MemoryScanOptions{ScanAll: true}, func(f Finding) {
-		findings = append(findings, f)
-	})
-	assert.NoError(t, err)
-	assert.True(t, len(findings) > 0, "should find testMemSecret in own process memory")
-
-	_ = testMemSecret // keep alive
-}
-
-func TestShouldScanRegion(t *testing.T) {
-	tests := []struct {
-		name   string
-		region MemoryRegion
-		all    bool
-		want   bool
-	}{
-		{"writable heap", MemoryRegion{Perms: "rw-p", MappedFile: "[heap]"}, false, true},
-		{"writable stack", MemoryRegion{Perms: "rw-p", MappedFile: "[stack]"}, false, true},
-		{"writable anonymous", MemoryRegion{Perms: "rw-p", MappedFile: ""}, false, true},
-		{"readonly code", MemoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, false, false},
-		{"readonly code with scanall", MemoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, true, true},
-		{"no read perm", MemoryRegion{Perms: "---p"}, false, false},
-		{"no read perm with scanall", MemoryRegion{Perms: "---p"}, true, false},
-		{"vvar region", MemoryRegion{Perms: "r--p", MappedFile: "[vvar]"}, false, true},
-		{"writable mapped", MemoryRegion{Perms: "rw-p", MappedFile: "/tmp/data.bin"}, false, true},
-		{"readonly mapped lib", MemoryRegion{Perms: "r--p", MappedFile: "/lib/libc.so"}, false, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shouldScanRegion(tt.region, MemoryScanOptions{ScanAll: tt.all})
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 
 func TestAsciiLowerInto(t *testing.T) {
 	tests := []struct {

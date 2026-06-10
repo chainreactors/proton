@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package file
+package cmd
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ type linuxMemReader struct {
 	memFile *os.File
 }
 
-func newMemoryReader(pid int) (MemoryReader, error) {
+func newMemoryReader(pid int) (memoryReader, error) {
 	memPath := fmt.Sprintf("/proc/%d/mem", pid)
 	f, err := os.Open(memPath)
 	if err != nil {
@@ -25,7 +25,7 @@ func newMemoryReader(pid int) (MemoryReader, error) {
 	return &linuxMemReader{pid: pid, memFile: f}, nil
 }
 
-func (r *linuxMemReader) Regions() ([]MemoryRegion, error) {
+func (r *linuxMemReader) Regions() ([]memoryRegion, error) {
 	mapsPath := fmt.Sprintf("/proc/%d/maps", r.pid)
 	f, err := os.Open(mapsPath)
 	if err != nil {
@@ -33,7 +33,7 @@ func (r *linuxMemReader) Regions() ([]MemoryRegion, error) {
 	}
 	defer f.Close()
 
-	var regions []MemoryRegion
+	var regions []memoryRegion
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		region, ok := parseMapsLine(scanner.Text())
@@ -44,26 +44,24 @@ func (r *linuxMemReader) Regions() ([]MemoryRegion, error) {
 	return regions, scanner.Err()
 }
 
-// parseMapsLine parses a line from /proc/pid/maps:
-// 55a1b2c3d000-55a1b2c4e000 r-xp 00000000 08:01 1234  /usr/bin/foo
-func parseMapsLine(line string) (MemoryRegion, bool) {
+func parseMapsLine(line string) (memoryRegion, bool) {
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
-		return MemoryRegion{}, false
+		return memoryRegion{}, false
 	}
 
 	addrParts := strings.SplitN(fields[0], "-", 2)
 	if len(addrParts) != 2 {
-		return MemoryRegion{}, false
+		return memoryRegion{}, false
 	}
 
 	start, err := strconv.ParseUint(addrParts[0], 16, 64)
 	if err != nil {
-		return MemoryRegion{}, false
+		return memoryRegion{}, false
 	}
 	end, err := strconv.ParseUint(addrParts[1], 16, 64)
 	if err != nil {
-		return MemoryRegion{}, false
+		return memoryRegion{}, false
 	}
 
 	perms := fields[1]
@@ -72,7 +70,7 @@ func parseMapsLine(line string) (MemoryRegion, bool) {
 		mappedFile = fields[5]
 	}
 
-	return MemoryRegion{
+	return memoryRegion{
 		BaseAddr:   start,
 		Size:       end - start,
 		Perms:      perms,

@@ -1,7 +1,7 @@
 //go:build darwin && cgo
 // +build darwin,cgo
 
-package file
+package cmd
 
 /*
 #include <mach/mach.h>
@@ -43,7 +43,7 @@ type darwinMemReader struct {
 	pid  int
 }
 
-func newMemoryReader(pid int) (MemoryReader, error) {
+func newMemoryReader(pid int) (memoryReader, error) {
 	var task C.mach_port_t
 	kr := C.task_for_pid(C.mach_task_self(), C.int(pid), &task)
 	if kr != C.KERN_SUCCESS {
@@ -52,8 +52,8 @@ func newMemoryReader(pid int) (MemoryReader, error) {
 	return &darwinMemReader{task: task, pid: pid}, nil
 }
 
-func (r *darwinMemReader) Regions() ([]MemoryRegion, error) {
-	var regions []MemoryRegion
+func (r *darwinMemReader) Regions() ([]memoryRegion, error) {
+	var regions []memoryRegion
 	var addr C.mach_vm_address_t
 
 	for {
@@ -65,7 +65,7 @@ func (r *darwinMemReader) Regions() ([]MemoryRegion, error) {
 		}
 
 		perms := machProtToPerms(int(info.protection))
-		regions = append(regions, MemoryRegion{
+		regions = append(regions, memoryRegion{
 			BaseAddr: uint64(addr),
 			Size:     uint64(size),
 			Perms:    perms,
@@ -73,7 +73,7 @@ func (r *darwinMemReader) Regions() ([]MemoryRegion, error) {
 
 		addr += C.mach_vm_address_t(size)
 		if uint64(addr) < uint64(addr)-uint64(size) {
-			break // overflow
+			break
 		}
 	}
 	return regions, nil
@@ -83,13 +83,13 @@ func machProtToPerms(prot int) string {
 	r := "-"
 	w := "-"
 	x := "-"
-	if prot&1 != 0 { // VM_PROT_READ
+	if prot&1 != 0 {
 		r = "r"
 	}
-	if prot&2 != 0 { // VM_PROT_WRITE
+	if prot&2 != 0 {
 		w = "w"
 	}
-	if prot&4 != 0 { // VM_PROT_EXECUTE
+	if prot&4 != 0 {
 		x = "x"
 	}
 	return r + w + x

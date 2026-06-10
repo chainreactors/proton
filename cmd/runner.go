@@ -228,11 +228,11 @@ func Run(opts *Options) error {
 	}
 
 	if opts.PID > 0 {
-		memOpts := file.MemoryScanOptions{ScanAll: opts.MemAll}
+		memOpts := memoryScanOptions{ScanAll: opts.MemAll}
 		if !opts.Quiet && outputFormat == "text" {
 			logs.Log.Infof("Scanning process memory: PID %d", opts.PID)
 		}
-		if err := scanner.ScanProcess(opts.PID, memOpts, handleFinding); err != nil {
+		if err := scanProcess(scanner, opts.PID, memOpts, handleFinding); err != nil {
 			if len(targets) == 0 {
 				return fmt.Errorf("memory scan failed: %v", err)
 			}

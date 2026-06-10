@@ -503,6 +503,14 @@ func (s *Scanner) processFile(path string, group *scanGroup) []Finding {
 	return s.scanData(data, path, group)
 }
 
+// ScanBlock runs the sliding-window matching pipeline on a binary data block.
+// Unlike ScanData (which splits by newline), ScanBlock treats data as a contiguous
+// binary buffer and uses a sliding window for matching. Use this for non-text data
+// sources such as process memory, network streams, or binary files.
+func (s *Scanner) ScanBlock(data []byte, label string, group *ScanGroup) []Finding {
+	return s.scanMemBlock(data, 0, label, group)
+}
+
 // ScanData runs the line-scanning pipeline on in-memory content and returns findings.
 // This is the primary entry point for callers that already have the data in memory
 // (e.g. spray processing HTTP response bodies).
