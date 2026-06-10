@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/chainreactors/logs"
@@ -52,8 +56,8 @@ func Run(opts *Options) error {
 	if opts.Input != "" {
 		targets = append(targets, opts.Input)
 	}
-	if len(targets) == 0 && opts.PID == 0 {
-		return fmt.Errorf("target (-i), --auto, or --pid is required, run 'found --help' for usage")
+	if len(targets) == 0 && opts.PID == 0 && opts.Listen == "" {
+		return fmt.Errorf("target (-i), --auto, --pid, or --listen is required, run 'found --help' for usage")
 	}
 
 	var tmpls []*template.Template
@@ -237,6 +241,26 @@ func Run(opts *Options) error {
 				return fmt.Errorf("memory scan failed: %v", err)
 			}
 			logs.Log.Warnf("memory scan: %v", err)
+		}
+	}
+
+	if opts.Listen != "" {
+		netOpts := networkOpts{Interface: opts.Listen, BPFFilter: opts.BPFFilter}
+		if !opts.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Capturing traffic on interface: %s", opts.Listen)
+			if opts.BPFFilter != "" {
+				logs.Log.Infof("BPF filter: %s", opts.BPFFilter)
+			}
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if err := scanNetwork(ctx, scanner, netOpts, handleFinding); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				if len(targets) == 0 && opts.PID == 0 {
+					return fmt.Errorf("network capture failed: %v", err)
+				}
+				logs.Log.Warnf("network capture: %v", err)
+			}
 		}
 	}
 
@@ -788,10 +812,14 @@ func startProgress(scanner *file.Scanner) func() {
 			case <-ticker.C:
 				files := atomic.LoadInt64(&scanner.Stats.Files)
 				regions := atomic.LoadInt64(&scanner.Stats.Regions)
+				packets := atomic.LoadInt64(&scanner.Stats.Packets)
 				bytes := atomic.LoadInt64(&scanner.Stats.Bytes)
 				findings := atomic.LoadInt64(&scanner.Stats.Findings)
 				elapsed := time.Since(start).Round(100 * time.Millisecond)
-				if regions > 0 && files > 0 {
+				if packets > 0 {
+					fmt.Fprintf(os.Stderr, "\r\033[K  Capturing: %d packets (%s) | %d findings | %s",
+						packets, progressBytes(bytes), findings, elapsed)
+				} else if regions > 0 && files > 0 {
 					fmt.Fprintf(os.Stderr, "\r\033[K  Scanning: %d files + %d regions (%s) | %d findings | %s",
 						files, regions, progressBytes(bytes), findings, elapsed)
 				} else if regions > 0 {

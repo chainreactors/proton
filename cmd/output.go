@@ -49,9 +49,14 @@ func (o *outputWriter) WriteFinding(f Finding) {
 		return
 	}
 
+	isMemory := strings.HasPrefix(f.FilePath, "pid:")
+	isNetwork := strings.HasPrefix(f.FilePath, "net:")
+
 	relPath := f.FilePath
-	if r, err := filepath.Rel(o.baseDir, f.FilePath); err == nil {
-		relPath = r
+	if !isMemory && !isNetwork {
+		if r, err := filepath.Rel(o.baseDir, f.FilePath); err == nil {
+			relPath = r
+		}
 	}
 
 	marker := severityMarker(f.Severity, o.color)
@@ -66,15 +71,15 @@ func (o *outputWriter) WriteFinding(f Finding) {
 			name, marker, tid, relPath)
 	}
 
-	isMemory := strings.HasPrefix(f.FilePath, "pid:")
-
 	for name, events := range f.Matches {
 		for _, ev := range events {
 			val := ev.Value
 			if len(val) > 200 {
 				val = val[:200] + "..."
 			}
-			if isMemory {
+			if isNetwork {
+				fmt.Fprintf(o.w, "   [%s] %s\n", name, val)
+			} else if isMemory {
 				fmt.Fprintf(o.w, "   [%s] [0x%x] %s\n", name, ev.Offset, val)
 			} else {
 				fmt.Fprintf(o.w, "   [%s] [L%d] %s\n", name, ev.Line, val)
@@ -87,7 +92,9 @@ func (o *outputWriter) WriteFinding(f Finding) {
 		if len(val) > 200 {
 			val = val[:200] + "..."
 		}
-		if isMemory {
+		if isNetwork {
+			fmt.Fprintf(o.w, "   %s\n", val)
+		} else if isMemory {
 			fmt.Fprintf(o.w, "   [0x%x] %s\n", ev.Offset, val)
 		} else {
 			fmt.Fprintf(o.w, "   [L%d] %s\n", ev.Line, val)
@@ -125,7 +132,10 @@ func severityMarker(s string, color bool) string {
 
 func printSummary(stats file.ScanStats, findingCount int, elapsed time.Duration, sevCount map[string]int, color bool, suppressed int) {
 	logs.Log.Console(strings.Repeat("─", 60) + "\n")
-	if stats.Regions > 0 && stats.Files > 0 {
+	if stats.Packets > 0 {
+		logs.Log.Consolef("Rules: %d | Packets: %d (%s) | Time: %s | Findings: %d\n",
+			stats.Rules, stats.Packets, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
+	} else if stats.Regions > 0 && stats.Files > 0 {
 		logs.Log.Consolef("Rules: %d | Files: %d | Regions: %d (%s) | Time: %s | Findings: %d\n",
 			stats.Rules, stats.Files, stats.Regions, stats.HumanBytes(), elapsed.Round(time.Millisecond), findingCount)
 	} else if stats.Regions > 0 {

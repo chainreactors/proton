@@ -22,6 +22,8 @@ Examples:
   found --auto --collect findings.zip         Auto-scan and package results
   found --pid 1234                           Scan process memory by PID
   found --pid 1234 --mem                     Scan all memory regions (including libs)
+  found --listen eth0                        Capture and scan live traffic
+  found --listen eth0 --bpf "port 80"        Only scan HTTP traffic
   found -i ~/projects --severity high        Only show high severity findings
   found -i ~/projects -j -s out.json         Save JSON results to file
   found -i ~/projects -t my-rules.yaml       Use custom template file
