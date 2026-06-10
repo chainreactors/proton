@@ -37,6 +37,13 @@ const (
 	maxRegionChunkSize = 4 << 20  // 4MB per read chunk
 )
 
+var readBufPool = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, maxRegionChunkSize+MemOverlapSize)
+		return &buf
+	},
+}
+
 func shouldScanRegion(r MemoryRegion, opts MemoryScanOptions) bool {
 	if !strings.Contains(r.Perms, "r") {
 		return false
@@ -123,7 +130,12 @@ func (s *Scanner) scanRegion(reader MemoryReader, region MemoryRegion, label str
 		chunkSize = regionSize
 	}
 
-	buf := make([]byte, chunkSize+uint64(MemOverlapSize))
+	bufPtr := readBufPool.Get().(*[]byte)
+	buf := *bufPtr
+	if uint64(len(buf)) < chunkSize+uint64(MemOverlapSize) {
+		buf = make([]byte, chunkSize+uint64(MemOverlapSize))
+	}
+	defer func() { readBufPool.Put(bufPtr) }()
 
 	for offset := uint64(0); offset < regionSize; {
 		readSize := chunkSize
@@ -165,7 +177,7 @@ func (s *Scanner) scanRegion(reader MemoryReader, region MemoryRegion, label str
 }
 
 func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group *scanGroup) []Finding {
-	results := s.getFileResults(len(group.Templates))
+	results := s.initFileResults(group.Templates)
 
 	srcBuf := make([]int, 0, len(group.patternSources))
 	srcSeen := make([]bool, len(group.patternSources))
@@ -304,7 +316,6 @@ func (s *Scanner) scanMemBlock(data []byte, baseAddr uint64, label string, group
 			findings = append(findings, *finding)
 		}
 	}
-	s.putFileResults(results)
 	return findings
 }
 

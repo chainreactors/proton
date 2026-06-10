@@ -32,10 +32,12 @@ type patternSource struct {
 }
 
 type ruleRef struct {
-	ID       string
-	Severity string
-	Name     string
-	Request  *Request
+	ID            string
+	Severity      string
+	Name          string
+	Request       *Request
+	numMatchers   int
+	numExtractors int
 }
 
 type ScanGroup = scanGroup
@@ -66,8 +68,8 @@ type matchHit struct {
 }
 
 type fileResult struct {
-	matcherHits   map[int][]matchHit
-	extractorHits map[int][]matchHit
+	matcherHits   [][]matchHit
+	extractorHits [][]matchHit
 }
 
 type MatchEvent struct {
@@ -99,10 +101,9 @@ func (s ScanStats) HumanBytes() string {
 }
 
 type Scanner struct {
-	Groups         []*scanGroup
-	Options        *protocols.ExecuterOptions
-	Stats          ScanStats
-	fileResultPool sync.Pool
+	Groups  []*scanGroup
+	Options *protocols.ExecuterOptions
+	Stats   ScanStats
 }
 
 type Rule struct {
@@ -150,6 +151,10 @@ func NewScanner(inputs []Rule, opts *protocols.ExecuterOptions) *Scanner {
 				group.UseTextOnly = true
 			}
 			tmplRef := &ruleRef{ID: input.ID, Severity: input.Severity, Name: input.Name, Request: req}
+			if req.CompiledOperators != nil {
+				tmplRef.numMatchers = len(req.CompiledOperators.Matchers)
+				tmplRef.numExtractors = len(req.CompiledOperators.Extractors)
+			}
 			tmplIdx := len(group.Templates)
 			group.Templates = append(group.Templates, tmplRef)
 
@@ -328,18 +333,24 @@ func (idx *patternIndex) relevantSourcesBytes(lower []byte, buf *[]int, seen []b
 	if idx == nil || idx.ac == nil {
 		return idx.fallbackSources
 	}
-	hits := idx.ac.FindAll(lower, -1)
-	if len(hits) == 0 && len(idx.fallbackSources) == 0 {
-		return nil
-	}
 	result := (*buf)[:0]
-	for _, hit := range hits {
+	start := 0
+	for {
+		hit := idx.ac.Find(lower, start)
+		if hit == nil {
+			break
+		}
 		for _, srcIdx := range idx.literalToSources[hit.PatternID] {
 			if !seen[srcIdx] {
 				seen[srcIdx] = true
 				result = append(result, srcIdx)
 			}
 		}
+		start = hit.End
+	}
+	if len(result) == 0 && len(idx.fallbackSources) == 0 {
+		*buf = result
+		return nil
 	}
 	for _, srcIdx := range idx.fallbackSources {
 		if !seen[srcIdx] {
@@ -501,7 +512,7 @@ func (s *Scanner) ScanData(data []byte, filePath string, group *scanGroup) []Fin
 
 // scanData runs the line-scanning pipeline on raw content and returns findings.
 func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Finding {
-	results := s.getFileResults(len(group.Templates))
+	results := s.initFileResults(group.Templates)
 
 	srcBuf := make([]int, 0, len(group.patternSources))
 	srcSeen := make([]bool, len(group.patternSources))
@@ -601,7 +612,6 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 			findings = append(findings, *finding)
 		}
 	}
-	s.putFileResults(results)
 	return findings
 }
 
@@ -713,33 +723,28 @@ func (s *Scanner) scanZip(archivePath string, group *scanGroup) []Finding {
 }
 
 
-func (s *Scanner) getFileResults(n int) []fileResult {
-	if v := s.fileResultPool.Get(); v != nil {
-		results := v.([]fileResult)
-		if len(results) >= n {
-			return results[:n]
+func (s *Scanner) initFileResults(templates []*ruleRef) []fileResult {
+	results := make([]fileResult, len(templates))
+	for i, t := range templates {
+		if t.numMatchers > 0 {
+			results[i].matcherHits = make([][]matchHit, t.numMatchers)
 		}
-	}
-	results := make([]fileResult, n)
-	for i := range results {
-		results[i].matcherHits = make(map[int][]matchHit)
-		results[i].extractorHits = make(map[int][]matchHit)
+		if t.numExtractors > 0 {
+			results[i].extractorHits = make([][]matchHit, t.numExtractors)
+		}
 	}
 	return results
 }
 
-func (s *Scanner) putFileResults(results []fileResult) {
+func (s *Scanner) resetFileResults(results []fileResult) {
 	for i := range results {
-		for k := range results[i].matcherHits {
-			results[i].matcherHits[k] = results[i].matcherHits[k][:0]
-			delete(results[i].matcherHits, k)
+		for j := range results[i].matcherHits {
+			results[i].matcherHits[j] = results[i].matcherHits[j][:0]
 		}
-		for k := range results[i].extractorHits {
-			results[i].extractorHits[k] = results[i].extractorHits[k][:0]
-			delete(results[i].extractorHits, k)
+		for j := range results[i].extractorHits {
+			results[i].extractorHits[j] = results[i].extractorHits[j][:0]
 		}
 	}
-	s.fileResultPool.Put(results)
 }
 
 func (request *Request) matchWordsOnCorpus(matcher *operators.Matcher, corpus string) (bool, []string) {

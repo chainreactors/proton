@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
+
 	"testing"
 
 	"github.com/chainreactors/neutron/operators"
@@ -248,45 +248,20 @@ func BenchmarkLineLoop_StringConversion(b *testing.B) {
 	})
 }
 
-func BenchmarkFileResult_AllocVsPool(b *testing.B) {
+func BenchmarkFileResult_SliceAlloc(b *testing.B) {
 	templateCount := 50
+	matcherCount := 3
+	extractorCount := 2
 
 	b.Run("AllocPerFile", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			results := make([]fileResult, templateCount)
 			for j := range results {
-				results[j].matcherHits = make(map[int][]matchHit)
-				results[j].extractorHits = make(map[int][]matchHit)
+				results[j].matcherHits = make([][]matchHit, matcherCount)
+				results[j].extractorHits = make([][]matchHit, extractorCount)
 			}
 			_ = results
-		}
-	})
-
-	pool := sync.Pool{
-		New: func() interface{} {
-			results := make([]fileResult, templateCount)
-			for j := range results {
-				results[j].matcherHits = make(map[int][]matchHit)
-				results[j].extractorHits = make(map[int][]matchHit)
-			}
-			return results
-		},
-	}
-
-	b.Run("SyncPool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			results := pool.Get().([]fileResult)
-			for j := range results {
-				for k := range results[j].matcherHits {
-					delete(results[j].matcherHits, k)
-				}
-				for k := range results[j].extractorHits {
-					delete(results[j].extractorHits, k)
-				}
-			}
-			pool.Put(results)
 		}
 	})
 }
