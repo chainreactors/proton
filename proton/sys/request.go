@@ -8,9 +8,19 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 )
 
+const (
+	SourceMemory  = "memory"
+	SourceEnv     = "env"
+	SourceCmdline = "cmdline"
+	SourceFD      = "fd"
+	SourceConn    = "conn"
+	SourcePipe    = "pipe"
+)
+
 type Request struct {
 	operators.Operators `json:",inline" yaml:",inline"`
 
+	Source  string   `json:"source,omitempty" yaml:"source,omitempty"`
 	Process string   `json:"process,omitempty" yaml:"process,omitempty"`
 	Regions []string `json:"regions,omitempty" yaml:"regions,omitempty"`
 
@@ -27,11 +37,15 @@ func (r *Request) Compile(options *protocols.ExecuterOptions) error {
 		r.CompiledOperators = compiled
 	}
 
+	if r.Source == "" {
+		r.Source = SourceMemory
+	}
+
 	r.regions = make(map[string]struct{})
 	for _, region := range r.Regions {
 		r.regions[strings.ToLower(region)] = struct{}{}
 	}
-	if len(r.regions) == 0 {
+	if r.Source == SourceMemory && len(r.regions) == 0 {
 		r.regions["heap"] = struct{}{}
 		r.regions["stack"] = struct{}{}
 		r.regions["anonymous"] = struct{}{}
@@ -43,9 +57,7 @@ func (r *Request) MatchesProcess(name string) bool {
 	if r.Process == "" {
 		return true
 	}
-	lower := strings.ToLower(name)
-	pattern := strings.ToLower(r.Process)
-	return strings.Contains(lower, pattern)
+	return strings.Contains(strings.ToLower(name), strings.ToLower(r.Process))
 }
 
 func (r *Request) MatchesRegion(perms, mappedFile string) bool {

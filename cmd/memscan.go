@@ -97,74 +97,114 @@ func buildSysScanner(rules []sysRule, execOpts *protocols.ExecuterOptions) *file
 }
 
 func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOptions, pid int, callback func(file.Finding)) error {
-	sysScanner := buildSysScanner(rules, execOpts)
-	if sysScanner == nil {
-		return nil
+	// Group rules by source type
+	memoryRules := make([]sysRule, 0)
+	dataRules := make([]sysRule, 0)
+	for _, r := range rules {
+		src := sys.SourceMemory
+		if r.Request != nil {
+			src = r.Request.Source
+		}
+		if src == sys.SourceMemory {
+			memoryRules = append(memoryRules, r)
+		} else {
+			dataRules = append(dataRules, r)
+		}
 	}
 
-	reader, err := newMemoryReader(pid)
-	if err != nil {
-		return fmt.Errorf("cannot attach to pid %d: %w", pid, err)
-	}
-	defer reader.Close()
-
-	regions, err := reader.Regions()
-	if err != nil {
-		return fmt.Errorf("cannot enumerate memory regions for pid %d: %w", pid, err)
-	}
-
-	// Filter regions based on sys.Request rules
-	var scanRegions []memoryRegion
-	for _, r := range regions {
-		for _, mr := range rules {
-			if mr.Request != nil && mr.Request.MatchesRegion(r.Perms, r.MappedFile) {
-				scanRegions = append(scanRegions, r)
-				break
-			}
-			if mr.FileReq != nil && shouldScanRegion(r, memoryScanOptions{ScanAll: false}) {
-				scanRegions = append(scanRegions, r)
-				break
+	// Scan non-memory sources (env, cmdline, fd, conn, pipe)
+	if len(dataRules) > 0 {
+		dataScanner := buildSysScanner(dataRules, execOpts)
+		if dataScanner != nil {
+			for _, rule := range dataRules {
+				src := rule.Request.Source
+				data, err := readSysData(pid, src)
+				if err != nil || len(data) == 0 {
+					continue
+				}
+				label := fmt.Sprintf("pid:%d:%s", pid, src)
+				for _, group := range dataScanner.Groups {
+					findings := dataScanner.ScanData(data, label, group)
+					if len(findings) > 0 {
+						atomic.AddInt64(&dataScanner.Stats.Findings, int64(len(findings)))
+						for _, f := range findings {
+							callback(f)
+						}
+					}
+				}
 			}
 		}
 	}
 
-	if len(scanRegions) == 0 {
-		return nil
-	}
+	// Scan memory regions
+	if len(memoryRules) > 0 {
+		sysScanner := buildSysScanner(memoryRules, execOpts)
+		if sysScanner == nil {
+			return nil
+		}
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers > len(scanRegions) {
-		numWorkers = len(scanRegions)
-	}
+		reader, err := newMemoryReader(pid)
+		if err != nil {
+			return fmt.Errorf("cannot attach to pid %d: %w", pid, err)
+		}
+		defer reader.Close()
 
-	type memJob struct {
-		region memoryRegion
-		group  *file.ScanGroup
-	}
-	jobCh := make(chan memJob, numWorkers*16)
-	var cbMu sync.Mutex
-	var wg sync.WaitGroup
+		regions, err := reader.Regions()
+		if err != nil {
+			return fmt.Errorf("cannot enumerate memory regions for pid %d: %w", pid, err)
+		}
 
-	label := fmt.Sprintf("pid:%d", pid)
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobCh {
-				scanMemRegion(sysScanner, reader, job.region, label, job.group, &cbMu, callback)
+		var scanRegions []memoryRegion
+		for _, r := range regions {
+			for _, mr := range memoryRules {
+				if mr.Request != nil && mr.Request.MatchesRegion(r.Perms, r.MappedFile) {
+					scanRegions = append(scanRegions, r)
+					break
+				}
+				if mr.FileReq != nil && shouldScanRegion(r, memoryScanOptions{ScanAll: false}) {
+					scanRegions = append(scanRegions, r)
+					break
+				}
 			}
-		}()
-	}
+		}
 
-	for _, region := range scanRegions {
-		atomic.AddInt64(&sysScanner.Stats.Regions, 1)
-		for _, group := range sysScanner.Groups {
-			jobCh <- memJob{region: region, group: group}
+		if len(scanRegions) > 0 {
+			numWorkers := runtime.NumCPU()
+			if numWorkers > len(scanRegions) {
+				numWorkers = len(scanRegions)
+			}
+
+			type memJob struct {
+				region memoryRegion
+				group  *file.ScanGroup
+			}
+			jobCh := make(chan memJob, numWorkers*16)
+			var cbMu sync.Mutex
+			var wg sync.WaitGroup
+
+			label := fmt.Sprintf("pid:%d", pid)
+
+			for i := 0; i < numWorkers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for job := range jobCh {
+						scanMemRegion(sysScanner, reader, job.region, label, job.group, &cbMu, callback)
+					}
+				}()
+			}
+
+			for _, region := range scanRegions {
+				atomic.AddInt64(&sysScanner.Stats.Regions, 1)
+				for _, group := range sysScanner.Groups {
+					jobCh <- memJob{region: region, group: group}
+				}
+			}
+			close(jobCh)
+			wg.Wait()
 		}
 	}
-	close(jobCh)
-	wg.Wait()
+
 	return nil
 }
 
