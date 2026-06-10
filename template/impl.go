@@ -26,6 +26,15 @@ func (t *Template) Compile(options *protocols.ExecuterOptions) error {
 		for _, req := range t.RequestsFile {
 			requests = append(requests, req)
 		}
+	}
+	if len(t.RequestsSys) > 0 {
+		for _, req := range t.RequestsSys {
+			if err := req.Compile(options); err != nil {
+				return err
+			}
+		}
+	}
+	if len(requests) > 0 {
 		t.Executor = executer.NewExecuter(requests, options)
 	}
 	if t.Executor != nil {
@@ -33,9 +42,11 @@ func (t *Template) Compile(options *protocols.ExecuterOptions) error {
 			return err
 		}
 		t.TotalRequests += t.Executor.Requests()
-		return nil
 	}
-	return errors.New("no requests defined in template")
+	if len(t.RequestsFile) == 0 && len(t.RequestsSys) == 0 {
+		return errors.New("no requests defined in template")
+	}
+	return nil
 }
 
 func (t *Template) Execute(input string, payload map[string]interface{}) (*operators.Result, error) {

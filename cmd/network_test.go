@@ -125,22 +125,3 @@ func TestConnKeyLabel(t *testing.T) {
 	assert.Equal(t, "net:192.168.1.100:12345->10.0.0.1:80", key.label())
 }
 
-func TestShouldScanRegionCmd(t *testing.T) {
-	tests := []struct {
-		name   string
-		region memoryRegion
-		all    bool
-		want   bool
-	}{
-		{"writable heap", memoryRegion{Perms: "rw-p", MappedFile: "[heap]"}, false, true},
-		{"readonly code", memoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, false, false},
-		{"readonly code with scanall", memoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, true, true},
-		{"no read perm", memoryRegion{Perms: "---p"}, false, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shouldScanRegion(tt.region, memoryScanOptions{ScanAll: tt.all})
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}

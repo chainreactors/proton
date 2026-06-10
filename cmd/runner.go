@@ -146,12 +146,14 @@ func Run(opts *Options) error {
 	}
 	var inputs []file.Rule
 	for _, tmpl := range tmpls {
-		inputs = append(inputs, file.Rule{
-			ID:       tmpl.Id,
-			Name:     tmpl.Info.Name,
-			Severity: tmpl.Info.Severity,
-			Requests: tmpl.RequestsFile,
-		})
+		if len(tmpl.RequestsFile) > 0 {
+			inputs = append(inputs, file.Rule{
+				ID:       tmpl.Id,
+				Name:     tmpl.Info.Name,
+				Severity: tmpl.Info.Severity,
+				Requests: tmpl.RequestsFile,
+			})
+		}
 	}
 
 	if len(opts.Expressions) > 0 {
@@ -160,6 +162,34 @@ func Run(opts *Options) error {
 			return fmt.Errorf("invalid expression: %v", err)
 		}
 		inputs = append(inputs, rule)
+	}
+
+	// Build mem scanner from mem protocol templates
+	var sysRules []sysRule
+	for _, tmpl := range tmpls {
+		for _, req := range tmpl.RequestsSys {
+			sysRules = append(sysRules, sysRule{
+				ID:       tmpl.Id,
+				Name:     tmpl.Info.Name,
+				Severity: tmpl.Info.Severity,
+				Request:  req,
+			})
+		}
+	}
+
+	// For --pid with -e (expression mode), also add expressions to mem scanner
+	if opts.PID > 0 && len(opts.Expressions) > 0 {
+		exprRule, err := buildExpressionRule(opts.Expressions, opts.ExtFilter, execOpts)
+		if err == nil {
+			for _, req := range exprRule.Requests {
+				sysRules = append(sysRules, sysRule{
+					ID:       exprRule.ID,
+					Name:     exprRule.Name,
+					Severity: exprRule.Severity,
+					FileReq:  req,
+				})
+			}
+		}
 	}
 
 	scanner := file.NewScanner(inputs, execOpts)
@@ -232,15 +262,24 @@ func Run(opts *Options) error {
 	}
 
 	if opts.PID > 0 {
-		memOpts := memoryScanOptions{ScanAll: opts.MemAll}
 		if !opts.Quiet && outputFormat == "text" {
 			logs.Log.Infof("Scanning process memory: PID %d", opts.PID)
 		}
-		if err := scanProcess(scanner, opts.PID, memOpts, handleFinding); err != nil {
-			if len(targets) == 0 {
-				return fmt.Errorf("memory scan failed: %v", err)
+		if len(sysRules) > 0 {
+			if err := scanProcessWithSysRules(sysRules, execOpts, opts.PID, handleFinding); err != nil {
+				if len(targets) == 0 {
+					return fmt.Errorf("memory scan failed: %v", err)
+				}
+				logs.Log.Warnf("memory scan: %v", err)
 			}
-			logs.Log.Warnf("memory scan: %v", err)
+		} else {
+			memOpts := memoryScanOptions{ScanAll: opts.MemAll}
+			if err := scanProcess(scanner, opts.PID, memOpts, handleFinding); err != nil {
+				if len(targets) == 0 {
+					return fmt.Errorf("memory scan failed: %v", err)
+				}
+				logs.Log.Warnf("memory scan: %v", err)
+			}
 		}
 	}
 
@@ -427,8 +466,8 @@ func parseTemplate(name string, data []byte, execOpts *protocols.ExecuterOptions
 	if err := yaml.Unmarshal(data, &tmpl); err != nil {
 		return nil, fmt.Errorf("parse %s: %v", name, err)
 	}
-	if len(tmpl.RequestsFile) == 0 {
-		return nil, fmt.Errorf("no file requests in %s", name)
+	if len(tmpl.RequestsFile) == 0 && len(tmpl.RequestsSys) == 0 {
+		return nil, fmt.Errorf("no file or sys requests in %s", name)
 	}
 	if err := tmpl.Compile(execOpts); err != nil {
 		return nil, fmt.Errorf("compile %s: %v", name, err)
@@ -587,7 +626,7 @@ func getTemplateInfoFromData(data []byte) *templateInfo {
 	if yaml.Unmarshal(data, &tmpl) != nil {
 		return nil
 	}
-	if len(tmpl.RequestsFile) == 0 {
+	if len(tmpl.RequestsFile) == 0 && len(tmpl.RequestsSys) == 0 {
 		return nil
 	}
 	sev := tmpl.Info.Severity

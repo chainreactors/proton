@@ -7,7 +7,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
+	"github.com/chainreactors/proton/proton/sys"
 )
 
 type memoryRegion struct {
@@ -54,6 +56,116 @@ func shouldScanRegion(r memoryRegion, opts memoryScanOptions) bool {
 		return true
 	}
 	return false
+}
+
+type sysRule struct {
+	ID       string
+	Name     string
+	Severity string
+	Request  *sys.Request
+	FileReq  *file.Request // for expression-mode fallback
+}
+
+func buildSysScanner(rules []sysRule, execOpts *protocols.ExecuterOptions) *file.Scanner {
+	var inputs []file.Rule
+	for _, mr := range rules {
+		var fileReqs []*file.Request
+		if mr.FileReq != nil {
+			fileReqs = []*file.Request{mr.FileReq}
+		} else if mr.Request != nil && mr.Request.CompiledOperators != nil {
+			req := &file.Request{
+				Extensions: []string{"all"},
+			}
+			req.Matchers = mr.Request.Matchers
+			req.Extractors = mr.Request.Extractors
+			req.Compile(execOpts)
+			fileReqs = []*file.Request{req}
+		}
+		if len(fileReqs) > 0 {
+			inputs = append(inputs, file.Rule{
+				ID:       mr.ID,
+				Name:     mr.Name,
+				Severity: mr.Severity,
+				Requests: fileReqs,
+			})
+		}
+	}
+	if len(inputs) == 0 {
+		return nil
+	}
+	return file.NewScanner(inputs, execOpts)
+}
+
+func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOptions, pid int, callback func(file.Finding)) error {
+	sysScanner := buildSysScanner(rules, execOpts)
+	if sysScanner == nil {
+		return nil
+	}
+
+	reader, err := newMemoryReader(pid)
+	if err != nil {
+		return fmt.Errorf("cannot attach to pid %d: %w", pid, err)
+	}
+	defer reader.Close()
+
+	regions, err := reader.Regions()
+	if err != nil {
+		return fmt.Errorf("cannot enumerate memory regions for pid %d: %w", pid, err)
+	}
+
+	// Filter regions based on sys.Request rules
+	var scanRegions []memoryRegion
+	for _, r := range regions {
+		for _, mr := range rules {
+			if mr.Request != nil && mr.Request.MatchesRegion(r.Perms, r.MappedFile) {
+				scanRegions = append(scanRegions, r)
+				break
+			}
+			if mr.FileReq != nil && shouldScanRegion(r, memoryScanOptions{ScanAll: false}) {
+				scanRegions = append(scanRegions, r)
+				break
+			}
+		}
+	}
+
+	if len(scanRegions) == 0 {
+		return nil
+	}
+
+	numWorkers := runtime.NumCPU()
+	if numWorkers > len(scanRegions) {
+		numWorkers = len(scanRegions)
+	}
+
+	type memJob struct {
+		region memoryRegion
+		group  *file.ScanGroup
+	}
+	jobCh := make(chan memJob, numWorkers*16)
+	var cbMu sync.Mutex
+	var wg sync.WaitGroup
+
+	label := fmt.Sprintf("pid:%d", pid)
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				scanMemRegion(sysScanner, reader, job.region, label, job.group, &cbMu, callback)
+			}
+		}()
+	}
+
+	for _, region := range scanRegions {
+		atomic.AddInt64(&sysScanner.Stats.Regions, 1)
+		for _, group := range sysScanner.Groups {
+			jobCh <- memJob{region: region, group: group}
+		}
+	}
+	close(jobCh)
+	wg.Wait()
+	return nil
 }
 
 func scanProcess(scanner *file.Scanner, pid int, opts memoryScanOptions, callback func(file.Finding)) error {

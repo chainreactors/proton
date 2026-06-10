@@ -3,6 +3,7 @@ package template
 import (
 	"github.com/chainreactors/neutron/protocols/executer"
 	"github.com/chainreactors/proton/proton/file"
+	"github.com/chainreactors/proton/proton/sys"
 )
 
 type Template struct {
@@ -22,6 +23,7 @@ type Template struct {
 	//RequestsHTTP    []*http.Request    `json:"http" yaml:"http"`
 	//RequestsNetwork []*network.Request `json:"network" yaml:"network"`
 	RequestsFile []*file.Request `json:"file" yaml:"file"`
+	RequestsSys []*sys.Request `json:"sys" yaml:"sys"`
 
 	// TotalRequests is the total number of requests for the template.
 	TotalRequests int `yaml:"-" json:"-"`

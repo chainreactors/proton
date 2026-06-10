@@ -275,9 +275,9 @@ func validateTemplateData(name string, data []byte) validateResult {
 		r.errors = append(r.errors, "missing required field \"info.name\"")
 	}
 
-	if len(tmpl.RequestsFile) == 0 {
+	if len(tmpl.RequestsFile) == 0 && len(tmpl.RequestsSys) == 0 {
 		r.valid = false
-		r.errors = append(r.errors, "no file requests defined")
+		r.errors = append(r.errors, "no file or sys requests defined")
 	}
 
 	sev := strings.ToLower(tmpl.Info.Severity)
