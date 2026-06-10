@@ -5,7 +5,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
-	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -20,9 +19,7 @@ import (
 	"github.com/chainreactors/neutron/common"
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
-	"github.com/charlievieth/fastwalk"
 	mmap "github.com/edsrzf/mmap-go"
-	"github.com/mholt/archives"
 	"github.com/chainreactors/utils/ahocorasick"
 )
 
@@ -382,7 +379,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 	}
 
 	// Stream dispatch: walk and process in parallel.
-	walkErr := fastwalk.Walk(nil, target, func(path string, d fs.DirEntry, err error) error {
+	walkErr := parallelWalk(target, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -711,51 +708,6 @@ func (s *Scanner) scanZip(archivePath string, group *scanGroup) []Finding {
 	return findings
 }
 
-// scanArchiveFallback uses mholt/archives for formats not handled by stdlib (7z, rar, etc.)
-func (s *Scanner) scanArchiveFallback(archivePath string, group *scanGroup) []Finding {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	format, _, err := archives.Identify(context.Background(), archivePath, f)
-	if err != nil || format == nil {
-		return nil
-	}
-	f.Seek(0, 0)
-	ex, ok := format.(archives.Extractor)
-	if !ok {
-		return nil
-	}
-	var findings []Finding
-	entries := 0
-	ex.Extract(context.Background(), f, func(ctx context.Context, fi archives.FileInfo) error {
-		if fi.IsDir() || fi.Size() == 0 || fi.Size() > maxArchiveEntrySize {
-			return nil
-		}
-		entryExt := filepath.Ext(fi.Name())
-		if _, deny := alwaysDenyExts[entryExt]; deny {
-			return nil
-		}
-		entries++
-		if entries > maxArchiveEntries {
-			return fmt.Errorf("too many entries")
-		}
-		rc, err := fi.Open()
-		if err != nil {
-			return nil
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(io.LimitReader(rc, maxArchiveEntrySize))
-		if err != nil || len(data) == 0 {
-			return nil
-		}
-		entryPath := fmt.Sprintf("%s:%s", archivePath, fi.Name())
-		findings = append(findings, s.scanData(data, entryPath, group)...)
-		return nil
-	})
-	return findings
-}
 
 func (s *Scanner) getFileResults(n int) []fileResult {
 	if v := s.fileResultPool.Get(); v != nil {

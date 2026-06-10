@@ -1,12 +1,30 @@
+//go:build !go1.18
+// +build !go1.18
+
 package file
 
 import (
+	"fmt"
+	"io"
+	"io/fs"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/chainreactors/neutron/operators"
-	regexp "github.com/wasilibs/go-re2"
+	"github.com/mholt/archiver"
 )
+
+// --- directory walk (filepath.WalkDir) ---
+
+func parallelWalk(root string, fn func(path string, d fs.DirEntry, err error) error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		return fn(path, d, err)
+	})
+}
+
+// --- regexp cache (stdlib regexp) ---
 
 var (
 	re2Cache   = make(map[string]*regexp.Regexp)
@@ -16,7 +34,7 @@ var (
 	re2SliceCacheMu sync.RWMutex
 )
 
-func getOrCompileRE2(pattern string) *regexp.Regexp {
+func getOrCompileRE2(pattern string) compiledRegexp {
 	re2CacheMu.RLock()
 	if r, ok := re2Cache[pattern]; ok {
 		re2CacheMu.RUnlock()
@@ -35,8 +53,6 @@ func getOrCompileRE2(pattern string) *regexp.Regexp {
 	return compiled
 }
 
-// getOrCompileRE2Slice returns a cached compiled regex slice for the given
-// pattern list pointer. This avoids re-creating the slice on every call.
 func getOrCompileRE2Slice(patterns *[]string) []*regexp.Regexp {
 	re2SliceCacheMu.RLock()
 	if cached, ok := re2SliceCache[patterns]; ok {
@@ -47,7 +63,8 @@ func getOrCompileRE2Slice(patterns *[]string) []*regexp.Regexp {
 
 	compiled := make([]*regexp.Regexp, 0, len(*patterns))
 	for _, p := range *patterns {
-		if r := getOrCompileRE2(p); r != nil {
+		r, err := regexp.Compile(p)
+		if err == nil {
 			compiled = append(compiled, r)
 		}
 	}
@@ -107,4 +124,41 @@ func (request *Request) extractRegexRE2(extractor *operators.Extractor, corpus s
 		}
 	}
 	return results
+}
+
+// --- archive fallback (mholt/archiver v3) ---
+
+func (s *Scanner) scanArchiveFallback(archivePath string, group *scanGroup) []Finding {
+	ar, _ := archiver.ByExtension(archivePath)
+	if ar == nil {
+		return nil
+	}
+	walker, ok := ar.(archiver.Walker)
+	if !ok {
+		return nil
+	}
+	var findings []Finding
+	entries := 0
+	_ = walker.Walk(archivePath, func(f archiver.File) error {
+		if f.IsDir() || f.Size() == 0 || f.Size() > maxArchiveEntrySize {
+			return nil
+		}
+		entryExt := filepath.Ext(f.Name())
+		if _, deny := alwaysDenyExts[entryExt]; deny {
+			return nil
+		}
+		entries++
+		if entries > maxArchiveEntries {
+			return fmt.Errorf("too many entries")
+		}
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, maxArchiveEntrySize))
+		if err != nil || len(data) == 0 {
+			return nil
+		}
+		entryPath := fmt.Sprintf("%s:%s", archivePath, f.Name())
+		findings = append(findings, s.scanData(data, entryPath, group)...)
+		return nil
+	})
+	return findings
 }

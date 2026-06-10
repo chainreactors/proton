@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/chainreactors/neutron/common"
-	"github.com/charlievieth/fastwalk"
 	"github.com/gobwas/glob"
 )
 
@@ -84,7 +83,7 @@ func (request *Request) findGlobPathMatches(absPath string, processed map[string
 	}
 
 	var mu sync.Mutex
-	walkErr := fastwalk.Walk(nil, baseDir, func(path string, d fs.DirEntry, err error) error {
+	walkErr := parallelWalk(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -145,7 +144,7 @@ func (request *Request) findFileMatches(absPath string, processed map[string]str
 // findDirectoryMatches finds matches for templates from a directory
 func (request *Request) findDirectoryMatches(absPath string, processed map[string]struct{}, callback func(string)) error {
 	var mu sync.Mutex
-	err := fastwalk.Walk(nil, absPath, func(path string, d fs.DirEntry, err error) error {
+	err := parallelWalk(absPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
