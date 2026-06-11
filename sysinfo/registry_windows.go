@@ -73,7 +73,7 @@ func walkLiveRegistryTarget(state *registryWalkState, target RegistryTarget, cb 
 	} else {
 		key, err = registry.OpenKey(rootKey, target.Path, registry.READ|registry.WOW64_64KEY)
 		if err != nil {
-			if errors.Is(err, registry.ErrNotExist) || errors.Is(err, syscall.ERROR_FILE_NOT_FOUND) {
+			if isRegistryMissing(err) || isRegistryAccessDenied(err) {
 				return nil
 			}
 			return err
@@ -224,6 +224,9 @@ func walkOfflineRegistryHive(state *registryWalkState, offreg *offlineRegistry, 
 	}
 	root, err := offreg.openHive(hive)
 	if err != nil {
+		if isRegistryAccessDenied(err) {
+			return nil
+		}
 		return err
 	}
 	defer offreg.closeHive(root)
@@ -238,6 +241,9 @@ func walkOfflineRegistryKey(state *registryWalkState, offreg *offlineRegistry, k
 	for i := uint32(0); ; i++ {
 		name, typ, data, truncated, ok, err := offreg.enumValue(key, i, state.opts.MaxValueBytes)
 		if err != nil {
+			if isRegistryAccessDenied(err) {
+				break
+			}
 			return err
 		}
 		if !ok {
@@ -266,6 +272,9 @@ func walkOfflineRegistryKey(state *registryWalkState, offreg *offlineRegistry, k
 	for i := uint32(0); ; i++ {
 		name, ok, err := offreg.enumKey(key, i)
 		if err != nil {
+			if isRegistryAccessDenied(err) {
+				return nil
+			}
 			return err
 		}
 		if !ok {
@@ -406,6 +415,14 @@ func offregErr(ret uintptr, _ uintptr, _ error) error {
 		return nil
 	}
 	return syscall.Errno(ret)
+}
+
+func isRegistryMissing(err error) bool {
+	return errors.Is(err, registry.ErrNotExist) || errors.Is(err, syscall.ERROR_FILE_NOT_FOUND)
+}
+
+func isRegistryAccessDenied(err error) bool {
+	return errors.Is(err, syscall.ERROR_ACCESS_DENIED)
 }
 
 func minInt(a, b int) int {
