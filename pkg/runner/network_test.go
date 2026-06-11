@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package runner
 
 import (
@@ -25,37 +28,37 @@ func testNetScanner(patterns []string) *file.Scanner {
 	}}, execOpts)
 }
 
-func TestStreamTrackerBasic(t *testing.T) {
+func scannerReassembler(scanner *file.Scanner, findings *[]file.Finding) *sysinfo.StreamReassembler {
+	return sysinfo.NewStreamReassembler(func(data []byte, label string) {
+		for _, group := range scanner.Groups {
+			for _, f := range scanner.ScanBlock(data, label, group) {
+				*findings = append(*findings, f)
+			}
+		}
+	}, file.MemOverlapSize, file.MemWindowSize)
+}
+
+func TestStreamReassemblerBasic(t *testing.T) {
 	scanner := testNetScanner([]string{`password=\S+`})
 	var findings []file.Finding
-	tracker := newStreamTracker(scanner, func(f file.Finding) {
-		findings = append(findings, f)
-	})
+	reassembler := scannerReassembler(scanner, &findings)
 
-	key := connKey{
-		SrcIP: [4]byte{10, 0, 0, 1}, DstIP: [4]byte{10, 0, 0, 2},
-		SrcPort: 12345, DstPort: 80,
-	}
+	key := [4]byte{10, 0, 0, 1}
+	dst := [4]byte{10, 0, 0, 2}
 
-	// SYN
-	tracker.processPacket(sysinfo.PacketInfo{
-		SrcIP: key.SrcIP, DstIP: key.DstIP,
-		SrcPort: key.SrcPort, DstPort: key.DstPort,
+	reassembler.ProcessPacket(sysinfo.PacketInfo{
+		SrcIP: key, DstIP: dst, SrcPort: 12345, DstPort: 80,
 		Seq: 100, Flags: sysinfo.TcpSYN,
 	})
 
-	// Data with secret
-	tracker.processPacket(sysinfo.PacketInfo{
-		SrcIP: key.SrcIP, DstIP: key.DstIP,
-		SrcPort: key.SrcPort, DstPort: key.DstPort,
+	reassembler.ProcessPacket(sysinfo.PacketInfo{
+		SrcIP: key, DstIP: dst, SrcPort: 12345, DstPort: 80,
 		Seq: 101, Flags: sysinfo.TcpACK,
 		Payload: []byte("POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nusername=admin&password=Secret123!\r\n"),
 	})
 
-	// FIN triggers flush
-	tracker.processPacket(sysinfo.PacketInfo{
-		SrcIP: key.SrcIP, DstIP: key.DstIP,
-		SrcPort: key.SrcPort, DstPort: key.DstPort,
+	reassembler.ProcessPacket(sysinfo.PacketInfo{
+		SrcIP: key, DstIP: dst, SrcPort: 12345, DstPort: 80,
 		Seq: 201, Flags: sysinfo.TcpFIN | sysinfo.TcpACK,
 	})
 
@@ -71,12 +74,10 @@ func TestStreamTrackerBasic(t *testing.T) {
 	assert.True(t, found, "should extract password=Secret123!")
 }
 
-func TestStreamTrackerRetransmission(t *testing.T) {
+func TestStreamReassemblerRetransmission(t *testing.T) {
 	scanner := testNetScanner([]string{`SECRET_[A-Z]+`})
 	var findings []file.Finding
-	tracker := newStreamTracker(scanner, func(f file.Finding) {
-		findings = append(findings, f)
-	})
+	reassembler := scannerReassembler(scanner, &findings)
 
 	pkt := sysinfo.PacketInfo{
 		SrcIP: [4]byte{1, 1, 1, 1}, DstIP: [4]byte{2, 2, 2, 2},
@@ -85,11 +86,10 @@ func TestStreamTrackerRetransmission(t *testing.T) {
 		Payload: []byte("SECRET_ALPHA"),
 	}
 
-	tracker.processPacket(pkt)
-	// retransmit same seq
-	tracker.processPacket(pkt)
+	reassembler.ProcessPacket(pkt)
+	reassembler.ProcessPacket(pkt) // retransmit
 
-	tracker.flushAll()
+	reassembler.FlushAll()
 
 	extractCount := 0
 	for _, f := range findings {
@@ -98,31 +98,19 @@ func TestStreamTrackerRetransmission(t *testing.T) {
 	assert.Equal(t, 1, extractCount, "retransmission should not duplicate")
 }
 
-func TestStreamTrackerFlushAll(t *testing.T) {
+func TestStreamReassemblerFlushAll(t *testing.T) {
 	scanner := testNetScanner([]string{`TOKEN_[A-Z0-9]+`})
 	var findings []file.Finding
-	tracker := newStreamTracker(scanner, func(f file.Finding) {
-		findings = append(findings, f)
-	})
+	reassembler := scannerReassembler(scanner, &findings)
 
-	tracker.processPacket(sysinfo.PacketInfo{
+	reassembler.ProcessPacket(sysinfo.PacketInfo{
 		SrcIP: [4]byte{1, 1, 1, 1}, DstIP: [4]byte{2, 2, 2, 2},
 		SrcPort: 5000, DstPort: 80,
 		Seq: 0, Flags: sysinfo.TcpACK,
 		Payload: []byte("Authorization: TOKEN_ABC123DEF456"),
 	})
 
-	tracker.flushAll()
+	reassembler.FlushAll()
 
 	assert.True(t, len(findings) > 0)
-	assert.True(t, len(tracker.conns) == 0, "flushAll should clear all connections")
 }
-
-func TestConnKeyLabel(t *testing.T) {
-	key := connKey{
-		SrcIP: [4]byte{192, 168, 1, 100}, DstIP: [4]byte{10, 0, 0, 1},
-		SrcPort: 12345, DstPort: 80,
-	}
-	assert.Equal(t, "net:192.168.1.100:12345->10.0.0.1:80", key.label())
-}
-

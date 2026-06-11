@@ -38,7 +38,7 @@ func TestScanProcessSelf(t *testing.T) {
 	}}, execOpts)
 
 	var findings []file.Finding
-	err = scanProcess(scanner, pid, memoryScanOptions{ScanAll: true}, func(f file.Finding) {
+	err = scanProcess(scanner, pid, true, func(f file.Finding) {
 		findings = append(findings, f)
 	})
 	assert.NoError(t, err)
@@ -83,7 +83,7 @@ func TestScanProcessWithSysRules(t *testing.T) {
 	_ = memTestSecret
 }
 
-func TestShouldScanRegionCmd(t *testing.T) {
+func TestShouldScanRegion(t *testing.T) {
 	tests := []struct {
 		name   string
 		region sysinfo.MemoryRegion
@@ -97,7 +97,7 @@ func TestShouldScanRegionCmd(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shouldScanRegion(tt.region, memoryScanOptions{ScanAll: tt.all})
+			got := sysinfo.ShouldScanRegion(tt.region, tt.all)
 			assert.Equal(t, tt.want, got)
 		})
 	}

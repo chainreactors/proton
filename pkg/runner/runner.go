@@ -281,8 +281,7 @@ func (r *Runner) Run() error {
 				logs.Log.Warnf("memory scan: %v", err)
 			}
 		} else {
-			memOpts := memoryScanOptions{ScanAll: cfg.MemAll}
-			if err := scanProcess(scanner, cfg.PID, memOpts, handleFinding); err != nil {
+			if err := scanProcess(scanner, cfg.PID, cfg.MemAll, handleFinding); err != nil {
 				if len(cfg.Targets) == 0 {
 					return fmt.Errorf("memory scan failed: %v", err)
 				}
