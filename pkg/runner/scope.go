@@ -41,6 +41,11 @@ func expandScopeTargets(cfg *Config) []string {
 		paths = append(paths, p...)
 		logScope(cfg, "history", len(p))
 	}
+	if cfg.Browser {
+		p := sysinfo.BrowserPaths()
+		paths = append(paths, p...)
+		logScope(cfg, "browser", len(p))
+	}
 	if cfg.Coredump {
 		p := sysinfo.CoredumpPaths()
 		paths = append(paths, p...)

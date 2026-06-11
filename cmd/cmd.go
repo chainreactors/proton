@@ -63,6 +63,7 @@ func Run(opts *Options) error {
 		Docker:   opts.Docker,
 		Logs:     opts.Logs,
 		History:  opts.History,
+		Browser:  opts.Browser,
 		Tmpfs:    opts.Tmpfs,
 		Git:      opts.Git,
 		Coredump: opts.Coredump,
