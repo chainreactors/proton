@@ -1,8 +1,6 @@
 package runner
 
 import (
-	"sync/atomic"
-
 	"github.com/chainreactors/logs"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/sysinfo"
@@ -61,16 +59,7 @@ func scanKeyring(scanner *file.Scanner, callback func(file.Finding)) {
 	if err != nil || len(data) == 0 {
 		return
 	}
-	label := "keyring:/proc/keys"
-	for _, group := range scanner.Groups {
-		findings := scanner.ScanData(data, label, group)
-		if len(findings) > 0 {
-			atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-			for _, f := range findings {
-				callback(f)
-			}
-		}
-	}
+	scanData(scanner, data, "keyring:/proc/keys", callback)
 }
 
 func scanGitHistory(scanner *file.Scanner, targets []string, callback func(file.Finding)) {
@@ -81,15 +70,7 @@ func scanGitHistory(scanner *file.Scanner, targets []string, callback func(file.
 		}
 		seen[target] = true
 		sysinfo.GitDeletedBlobs(target, func(data []byte, label string) {
-			for _, group := range scanner.Groups {
-				findings := scanner.ScanData(data, label, group)
-				if len(findings) > 0 {
-					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-					for _, f := range findings {
-						callback(f)
-					}
-				}
-			}
+			scanData(scanner, data, label, callback)
 		})
 	}
 }

@@ -22,15 +22,7 @@ func scanNetwork(ctx context.Context, scanner *file.Scanner, opts networkOpts, c
 	defer handle.Close()
 
 	reassembler := sysinfo.NewStreamReassembler(func(data []byte, label string) {
-		for _, group := range scanner.Groups {
-			findings := scanner.ScanBlock(data, label, group)
-			if len(findings) > 0 {
-				atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-				for _, f := range findings {
-					callback(f)
-				}
-			}
-		}
+		scanBlock(scanner, data, label, callback)
 	}, file.MemOverlapSize, file.MemWindowSize)
 
 	buf := make([]byte, 65536)

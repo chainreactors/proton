@@ -38,15 +38,7 @@ func scanProcessSources(scanner *file.Scanner, execOpts *protocols.ExecuterOptio
 		if !quiet && format == "text" {
 			logs.Log.Debugf("scanning pid:%d source:%s (%d bytes)", pid, src, len(data))
 		}
-		for _, group := range scanner.Groups {
-			findings := scanner.ScanData(data, label, group)
-			if len(findings) > 0 {
-				atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-				for _, f := range findings {
-					callback(f)
-				}
-			}
-		}
+		scanData(scanner, data, label, callback)
 	}
 }
 
@@ -113,15 +105,7 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 					continue
 				}
 				label := fmt.Sprintf("pid:%d:%s", pid, src)
-				for _, group := range dataScanner.Groups {
-					findings := dataScanner.ScanData(data, label, group)
-					if len(findings) > 0 {
-						atomic.AddInt64(&dataScanner.Stats.Findings, int64(len(findings)))
-						for _, f := range findings {
-							callback(f)
-						}
-					}
-				}
+				scanData(dataScanner, data, label, callback)
 			}
 		}
 	}
@@ -151,15 +135,7 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 
 		return sysinfo.WalkProcessMemory(pid, opts, func(data []byte, label string) {
 			atomic.AddInt64(&scanner.Stats.Bytes, int64(len(data)))
-			for _, group := range scanner.Groups {
-				findings := scanner.ScanBlock(data, label, group)
-				if len(findings) > 0 {
-					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-					for _, f := range findings {
-						callback(f)
-					}
-				}
-			}
+			scanBlock(scanner, data, label, callback)
 		})
 	}
 
@@ -174,14 +150,6 @@ func scanProcess(scanner *file.Scanner, pid int, scanAll bool, callback func(fil
 
 	return sysinfo.WalkProcessMemory(pid, opts, func(data []byte, label string) {
 		atomic.AddInt64(&scanner.Stats.Bytes, int64(len(data)))
-		for _, group := range scanner.Groups {
-			findings := scanner.ScanBlock(data, label, group)
-			if len(findings) > 0 {
-				atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-				for _, f := range findings {
-					callback(f)
-				}
-			}
-		}
+		scanBlock(scanner, data, label, callback)
 	})
 }

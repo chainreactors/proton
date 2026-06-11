@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,38 +31,54 @@ const Banner = `
  / _// _ \/ // / _ \/ _  /
 /_/  \___/\_,_/_//_/\_,_/  ` + Version + "\n"
 
-// Runner encapsulates the scan orchestration logic.
 type Runner struct {
 	Config    *Config
 	Scanner   *file.Scanner
 	templates []*template.Template
-	stats     file.ScanStats
+
+	// scan state — populated during Run()
+	execOpts     *protocols.ExecuterOptions
+	sysRules     []sysRule
+	registryRules []sysRule
+	writer       *outputWriter
+	saveWriter   *outputWriter
+	ignFilter    *ignoreFilter
+	baseline     *Baseline
+	failOn       map[string]bool
+	sevFilter    map[string]bool
+
+	outputFormat string
+	baseDir      string
+	useColor     bool
+	showProgress bool
+	startTime    time.Time
+
+	seen          map[string]bool
+	sevCount      map[string]int
+	findingCount  int
+	baselinedCount int
+	allFindings   []Finding
 }
 
-// New creates a Runner from the given Config.
 func New(cfg *Config) (*Runner, error) {
 	LoadFiltersFromEmbedded()
 
 	var targets []string
 	if cfg.Auto {
-		autoTargets := loadAutoTargets()
-		targets = append(targets, autoTargets...)
+		targets = append(targets, loadAutoTargets()...)
 	}
 	if cfg.Input != "" {
 		targets = append(targets, cfg.Input)
 	}
-	if len(cfg.Targets) > 0 {
-		targets = append(targets, cfg.Targets...)
-	}
+	targets = append(targets, cfg.Targets...)
 	targets = append(targets, expandScopeTargets(cfg)...)
 	cfg.Targets = targets
 
-	hasScope := cfg.ProcessScanEnabled() || cfg.RegistryScanEnabled() || cfg.Keyring || cfg.Git || cfg.Clipboard || cfg.Keylog || cfg.Listen != ""
+	hasScope := cfg.ProcessScanEnabled() || cfg.RegistryScanEnabled() ||
+		cfg.Keyring || cfg.Git || cfg.Clipboard || cfg.Keylog || cfg.Listen != ""
 
 	var tmpls []*template.Template
-	hasExplicitTemplates := len(cfg.Templates) > 0
-	expressionMode := len(cfg.Expressions) > 0
-	if hasExplicitTemplates || !expressionMode {
+	if len(cfg.Templates) > 0 || len(cfg.Expressions) == 0 {
 		var err error
 		tmpls, err = LoadTemplates(cfg)
 		if err != nil {
@@ -73,24 +89,22 @@ func New(cfg *Config) (*Runner, error) {
 		return nil, fmt.Errorf("no templates loaded — use -t to specify templates, -c for categories, or -e for regex")
 	}
 	if len(targets) == 0 && !hasScope && !templatesHaveRegistryRequests(tmpls) {
-		return nil, fmt.Errorf("target (-i), --auto, --pid, --registry, or --listen is required, run 'found --help' for usage")
+		return nil, fmt.Errorf("target (-i), --auto, --pid, --registry, or --listen is required")
 	}
 
 	execOpts := &protocols.ExecuterOptions{
 		Options: &protocols.Options{TextOnly: !cfg.Bin},
 	}
+
 	var inputs []file.Rule
 	for _, tmpl := range tmpls {
 		if len(tmpl.RequestsFile) > 0 {
 			inputs = append(inputs, file.Rule{
-				ID:       tmpl.Id,
-				Name:     tmpl.Info.Name,
-				Severity: tmpl.Info.Severity,
-				Requests: tmpl.RequestsFile,
+				ID: tmpl.Id, Name: tmpl.Info.Name,
+				Severity: tmpl.Info.Severity, Requests: tmpl.RequestsFile,
 			})
 		}
 	}
-
 	if len(cfg.Expressions) > 0 {
 		rule, err := buildExpressionRule(cfg.Expressions, cfg.ExtFilter, execOpts)
 		if err != nil {
@@ -99,450 +113,396 @@ func New(cfg *Config) (*Runner, error) {
 		inputs = append(inputs, rule)
 	}
 
-	scanner := file.NewScanner(inputs, execOpts)
-
 	return &Runner{
 		Config:    cfg,
-		Scanner:   scanner,
+		Scanner:   file.NewScanner(inputs, execOpts),
 		templates: tmpls,
+		execOpts:  execOpts,
 	}, nil
 }
 
-// Run executes the scan and returns an error (possibly *ExitError) on failure.
 func (r *Runner) Run() error {
+	r.initRunState()
+
+	if err := r.printBanner(); err != nil {
+		return err
+	}
+
+	stopProgress := r.startProgressIfNeeded()
+
+	r.scanProcesses()
+	r.scanRegistryAll()
+	r.scanKeyring()
+	r.scanGitHistory()
+	r.scanFiles()
+	r.runMonitors()
+
+	stopProgress()
+	return r.finalize()
+}
+
+// --- init ---
+
+func (r *Runner) initRunState() {
 	cfg := r.Config
-	scanner := r.Scanner
 
-	out := os.Stdout
-	var saveFile *os.File
-	if cfg.SaveFile != "" {
-		f, err := os.Create(cfg.SaveFile)
-		if err != nil {
-			return fmt.Errorf("cannot create output file: %v", err)
-		}
-		defer f.Close()
-		saveFile = f
-	}
-
-	outputFormat := cfg.Output
+	r.outputFormat = cfg.Output
 	if cfg.JSON {
-		outputFormat = "json"
+		r.outputFormat = "json"
 	}
+	r.useColor = IsTTY(os.Stdout) && !cfg.NoColor && r.outputFormat == "text"
+	r.showProgress = IsTTY(os.Stderr) && !cfg.Quiet && r.outputFormat == "text"
 
-	useColor := IsTTY(os.Stdout) && !cfg.NoColor && outputFormat == "text"
-	showProgress := IsTTY(os.Stderr) && !cfg.Quiet && outputFormat == "text"
-	if useColor {
+	if r.useColor {
 		logs.Log.SetColor(true)
 	}
 
-	if !cfg.Quiet && outputFormat == "text" {
+	if len(cfg.Targets) > 0 {
+		r.baseDir = cfg.Targets[0]
+	}
+
+	r.startTime = time.Now()
+	r.seen = make(map[string]bool)
+	r.sevCount = make(map[string]int)
+	r.sevFilter = parseSeverityFilter(cfg.Severity)
+	r.failOn = parseFailOn(cfg.FailOn)
+	r.ignFilter = loadIgnoreFilter(cfg.Targets, cfg.IgnoreFiles)
+	r.baseline = loadBaseline(cfg.Baseline)
+
+	r.buildSysRules()
+}
+
+func (r *Runner) buildSysRules() {
+	for _, tmpl := range r.templates {
+		for _, req := range tmpl.RequestsSys {
+			rule := sysRule{
+				ID: tmpl.Id, Name: tmpl.Info.Name,
+				Severity: tmpl.Info.Severity, Request: req,
+			}
+			if req.Source == sysinfo.SourceRegistry {
+				r.registryRules = append(r.registryRules, rule)
+			} else {
+				r.sysRules = append(r.sysRules, rule)
+			}
+		}
+	}
+
+	if r.Config.PID > 0 && len(r.Config.Expressions) > 0 {
+		exprRule, err := buildExpressionRule(r.Config.Expressions, r.Config.ExtFilter, r.execOpts)
+		if err == nil {
+			for _, req := range exprRule.Requests {
+				r.sysRules = append(r.sysRules, sysRule{
+					ID: exprRule.ID, Name: exprRule.Name,
+					Severity: exprRule.Severity, FileReq: req,
+				})
+			}
+		}
+	}
+}
+
+// --- banner ---
+
+func (r *Runner) printBanner() error {
+	cfg := r.Config
+
+	if !cfg.Quiet && r.outputFormat == "text" {
 		logs.Log.Console(Banner)
 		mode := "TextOnly"
 		if cfg.Bin {
 			mode = "Binary: on"
 		}
-		logs.Log.Infof("Loaded %d rules | Targets: %d | %s", scanner.Stats.Rules, len(cfg.Targets), mode)
+		logs.Log.Infof("Loaded %d rules | Targets: %d | %s", r.Scanner.Stats.Rules, len(cfg.Targets), mode)
 		for _, t := range cfg.Targets {
 			logs.Log.Infof("  %s", t)
 		}
 	}
 
-	var baseDir string
-	if len(cfg.Targets) > 0 {
-		baseDir = cfg.Targets[0]
-	}
-	writer := newOutputWriter(outputFormat, out, baseDir, useColor)
-	var saveWriter *outputWriter
-	if saveFile != nil {
-		saveWriter = newOutputWriter(outputFormat, saveFile, baseDir, false)
-	}
+	r.writer = newOutputWriter(r.outputFormat, os.Stdout, r.baseDir, r.useColor)
 
-	ignFilter := loadIgnoreFilter(cfg.Targets, cfg.IgnoreFiles)
-	if ignFilter != nil && !cfg.Quiet && outputFormat == "text" {
-		logs.Log.Infof("Loaded %d ignore rules (post-scan suppression)", len(ignFilter.rules))
-	}
-
-	bl := loadBaseline(cfg.Baseline)
-	if bl != nil && len(bl.Entries) > 0 && !cfg.Quiet && outputFormat == "text" {
-		logs.Log.Infof("Loaded baseline with %d known findings", len(bl.Entries))
-	}
-	failOn := parseFailOn(cfg.FailOn)
-
-	sevFilter := parseSeverityFilter(cfg.Severity)
-	start := time.Now()
-	var findingCount int
-	var baselinedCount int
-	sevCount := map[string]int{}
-	seen := map[string]bool{}
-	var allFindings []Finding
-
-	execOpts := &protocols.ExecuterOptions{
-		Options: &protocols.Options{TextOnly: !cfg.Bin},
-	}
-	var sysRules []sysRule
-	var registryRules []sysRule
-	for _, tmpl := range r.templates {
-		for _, req := range tmpl.RequestsSys {
-			rule := sysRule{
-				ID:       tmpl.Id,
-				Name:     tmpl.Info.Name,
-				Severity: tmpl.Info.Severity,
-				Request:  req,
-			}
-			if req.Source == sysinfo.SourceRegistry {
-				registryRules = append(registryRules, rule)
-			} else {
-				sysRules = append(sysRules, rule)
-			}
-		}
-	}
-
-	// For --pid with -e (expression mode), also add expressions to mem scanner
-	if cfg.PID > 0 && len(cfg.Expressions) > 0 {
-		exprRule, err := buildExpressionRule(cfg.Expressions, cfg.ExtFilter, execOpts)
-		if err == nil {
-			for _, req := range exprRule.Requests {
-				sysRules = append(sysRules, sysRule{
-					ID:       exprRule.ID,
-					Name:     exprRule.Name,
-					Severity: exprRule.Severity,
-					FileReq:  req,
-				})
-			}
-		}
-	}
-
-	stopProgress := func() {}
-	if showProgress {
-		stopProgress = startProgress(scanner)
-	}
-
-	handleFinding := func(uf file.Finding) {
-		f := Finding{
-			TemplateID:   uf.TemplateID,
-			TemplateName: uf.TemplateName,
-			Severity:     uf.Severity,
-			FilePath:     uf.FilePath,
-			Matches:      uf.Matches,
-			Extracts:     uf.Extracts,
-		}
-		for name := range uf.Matches {
-			f.MatcherName = name
-			break
-		}
-
-		if len(sevFilter) > 0 {
-			if _, ok := sevFilter[f.Severity]; !ok {
-				return
-			}
-		}
-
-		key := f.TemplateID + "|" + f.FilePath
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-
-		relPath := f.FilePath
-		if r, err := filepath.Rel(baseDir, f.FilePath); err == nil {
-			relPath = r
-		}
-		if ignFilter.shouldIgnore(f.TemplateID, relPath) {
-			return
-		}
-		if cfg.Baseline != "" && isSamePath(f.FilePath, cfg.Baseline, baseDir) {
-			return
-		}
-		if cfg.Findings != "" && isSamePath(f.FilePath, cfg.Findings, baseDir) {
-			return
-		}
-
-		if bl != nil {
-			bkey := findingKey(f.TemplateID, relPath, f.Matches, f.Extracts)
-			if bl.Contains(bkey) {
-				baselinedCount++
-				return
-			}
-		}
-
-		findingCount++
-		sevCount[f.Severity]++
-		allFindings = append(allFindings, f)
-		if outputFormat != "zombie" {
-			if showProgress {
-				fmt.Fprint(os.Stderr, "\r\033[K")
-			}
-			writer.WriteFinding(f)
-			if saveWriter != nil {
-				saveWriter.WriteFinding(f)
-			}
-		}
-	}
-
-	if cfg.ProcessScanEnabled() {
-		pids, err := resolveTargetPIDs(cfg)
+	if cfg.SaveFile != "" {
+		f, err := os.Create(cfg.SaveFile)
 		if err != nil {
-			return fmt.Errorf("process enumeration: %v", err)
+			return fmt.Errorf("cannot create output file: %v", err)
 		}
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Scanning %d process(es)", len(pids))
+		r.saveWriter = newOutputWriter(r.outputFormat, f, r.baseDir, false)
+	}
+
+	if r.ignFilter != nil && !cfg.Quiet && r.outputFormat == "text" {
+		logs.Log.Infof("Loaded %d ignore rules", len(r.ignFilter.rules))
+	}
+	if r.baseline != nil && len(r.baseline.Entries) > 0 && !cfg.Quiet && r.outputFormat == "text" {
+		logs.Log.Infof("Loaded baseline with %d known findings", len(r.baseline.Entries))
+	}
+
+	return nil
+}
+
+// --- handleFinding ---
+
+func (r *Runner) handleFinding(uf file.Finding) {
+	cfg := r.Config
+
+	f := Finding{
+		TemplateID:   uf.TemplateID,
+		TemplateName: uf.TemplateName,
+		Severity:     uf.Severity,
+		FilePath:     uf.FilePath,
+		Matches:      uf.Matches,
+		Extracts:     uf.Extracts,
+	}
+	for name := range uf.Matches {
+		f.MatcherName = name
+		break
+	}
+
+	if len(r.sevFilter) > 0 {
+		if _, ok := r.sevFilter[f.Severity]; !ok {
+			return
 		}
-		sources := cfg.ProcessSources()
-		for _, pid := range pids {
-			if len(sources) > 0 {
-				scanProcessSources(scanner, execOpts, pid, sources, handleFinding, cfg.Quiet, outputFormat)
-			}
-			if cfg.Mem || cfg.MemAll || (len(sources) == 0 && !cfg.Env && !cfg.Cmdline && !cfg.Fd && !cfg.Conn && !cfg.Pipe) {
-				if len(sysRules) > 0 {
-					if err := scanProcessWithSysRules(sysRules, execOpts, pid, handleFinding); err != nil {
-						logs.Log.Warnf("pid %d memory: %v", pid, err)
-					}
-				} else {
-					if err := scanProcess(scanner, pid, cfg.MemAll, handleFinding); err != nil {
-						logs.Log.Warnf("pid %d memory: %v", pid, err)
-					}
+	}
+
+	key := f.TemplateID + "|" + f.FilePath
+	if r.seen[key] {
+		return
+	}
+	r.seen[key] = true
+
+	relPath := f.FilePath
+	if rel, err := filepath.Rel(r.baseDir, f.FilePath); err == nil {
+		relPath = rel
+	}
+	if r.ignFilter.shouldIgnore(f.TemplateID, relPath) {
+		return
+	}
+	if cfg.Baseline != "" && isSamePath(f.FilePath, cfg.Baseline, r.baseDir) {
+		return
+	}
+	if cfg.Findings != "" && isSamePath(f.FilePath, cfg.Findings, r.baseDir) {
+		return
+	}
+
+	if r.baseline != nil {
+		bkey := findingKey(f.TemplateID, relPath, f.Matches, f.Extracts)
+		if r.baseline.Contains(bkey) {
+			r.baselinedCount++
+			return
+		}
+	}
+
+	r.findingCount++
+	r.sevCount[f.Severity]++
+	r.allFindings = append(r.allFindings, f)
+
+	if r.outputFormat != "zombie" {
+		if r.showProgress {
+			fmt.Fprint(os.Stderr, "\r\033[K")
+		}
+		r.writer.WriteFinding(f)
+		if r.saveWriter != nil {
+			r.saveWriter.WriteFinding(f)
+		}
+	}
+}
+
+// --- scan phases ---
+
+func (r *Runner) scanProcesses() {
+	cfg := r.Config
+	if !cfg.ProcessScanEnabled() {
+		return
+	}
+
+	pids, err := resolveTargetPIDs(cfg)
+	if err != nil {
+		logs.Log.Warnf("process enumeration: %v", err)
+		return
+	}
+	r.logf("Scanning %d process(es)", len(pids))
+
+	sources := cfg.ProcessSources()
+	for _, pid := range pids {
+		if len(sources) > 0 {
+			scanProcessSources(r.Scanner, r.execOpts, pid, sources, r.handleFinding, cfg.Quiet, r.outputFormat)
+		}
+		if cfg.Mem || cfg.MemAll || (len(sources) == 0 && !cfg.Env && !cfg.Cmdline && !cfg.Fd && !cfg.Conn && !cfg.Pipe) {
+			if len(r.sysRules) > 0 {
+				if err := scanProcessWithSysRules(r.sysRules, r.execOpts, pid, r.handleFinding); err != nil {
+					logs.Log.Warnf("pid %d memory: %v", pid, err)
+				}
+			} else {
+				if err := scanProcess(r.Scanner, pid, cfg.MemAll, r.handleFinding); err != nil {
+					logs.Log.Warnf("pid %d memory: %v", pid, err)
 				}
 			}
 		}
 	}
+}
+
+func (r *Runner) scanRegistryAll() {
+	cfg := r.Config
 
 	if cfg.RegistryScanEnabled() {
-		if !cfg.Quiet && outputFormat == "text" {
-			if len(cfg.RegistryHives) > 0 {
-				logs.Log.Infof("Scanning Windows registry (%d hive file(s))", len(cfg.RegistryHives))
-			} else {
-				logs.Log.Infof("Scanning Windows registry")
-			}
+		if len(cfg.RegistryHives) > 0 {
+			r.logf("Scanning Windows registry (%d hive file(s))", len(cfg.RegistryHives))
+		} else {
+			r.logf("Scanning Windows registry")
 		}
-		if err := scanRegistry(scanner, defaultRegistryOptionsFromConfig(cfg), handleFinding); err != nil {
-			if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() {
-				return fmt.Errorf("registry scan failed: %v", err)
-			}
+		if err := scanRegistry(r.Scanner, defaultRegistryOptionsFromConfig(cfg), r.handleFinding); err != nil {
 			logs.Log.Warnf("registry scan: %v", err)
 		}
 	}
 
-	if len(registryRules) > 0 {
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Scanning Windows registry with %d sys rule(s)", len(registryRules))
-		}
-		if err := scanRegistryWithSysRules(registryRules, execOpts, handleFinding); err != nil {
-			if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() && !cfg.RegistryScanEnabled() {
-				return fmt.Errorf("registry sys scan failed: %v", err)
-			}
+	if len(r.registryRules) > 0 {
+		r.logf("Scanning Windows registry with %d sys rule(s)", len(r.registryRules))
+		if err := scanRegistryWithSysRules(r.registryRules, r.execOpts, r.handleFinding); err != nil {
 			logs.Log.Warnf("registry sys scan: %v", err)
 		}
 	}
+}
 
-	if cfg.Listen != "" || cfg.Clipboard || cfg.Keylog {
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
+func (r *Runner) scanKeyring() {
+	if !r.Config.Keyring {
+		return
+	}
+	r.logf("Scanning kernel keyring")
+	scanKeyring(r.Scanner, r.handleFinding)
+}
 
-		monitorOnData := func(data []byte, label string) {
-			for _, group := range scanner.Groups {
-				findings := scanner.ScanData(data, label, group)
-				for _, f := range findings {
-					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-					handleFinding(f)
-				}
-			}
-		}
+func (r *Runner) scanGitHistory() {
+	if !r.Config.Git {
+		return
+	}
+	targets := r.Config.Targets
+	if len(targets) == 0 {
+		targets = []string{"."}
+	}
+	r.logf("Scanning git history for deleted secrets")
+	scanGitHistory(r.Scanner, targets, r.handleFinding)
+}
 
-		var monitorWg sync.WaitGroup
+func (r *Runner) scanFiles() {
+	for _, target := range r.Config.Targets {
+		r.Scanner.Scan(target, r.handleFinding)
+	}
+}
 
-		if cfg.Listen != "" {
-			netOpts := networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}
-			if !cfg.Quiet && outputFormat == "text" {
-				logs.Log.Infof("Capturing traffic on interface: %s", cfg.Listen)
-				if cfg.BPFFilter != "" {
-					logs.Log.Infof("BPF filter: %s", cfg.BPFFilter)
-				}
-			}
-			monitorWg.Add(1)
-			go func() {
-				defer monitorWg.Done()
-				if err := scanNetwork(ctx, scanner, netOpts, handleFinding); err != nil && !errors.Is(err, context.Canceled) {
-					logs.Log.Warnf("network capture: %v", err)
-				}
-			}()
-		}
-
-		if cfg.Clipboard {
-			if !cfg.Quiet && outputFormat == "text" {
-				logs.Log.Infof("Monitoring clipboard")
-			}
-			monitorWg.Add(1)
-			go func() {
-				defer monitorWg.Done()
-				if err := sysinfo.WatchClipboard(ctx, monitorOnData); err != nil && !errors.Is(err, context.Canceled) {
-					logs.Log.Warnf("clipboard: %v", err)
-				}
-			}()
-		}
-
-		if cfg.Keylog {
-			if !cfg.Quiet && outputFormat == "text" {
-				logs.Log.Infof("Monitoring keystrokes")
-			}
-			monitorWg.Add(1)
-			go func() {
-				defer monitorWg.Done()
-				if err := sysinfo.WatchKeystrokes(ctx, monitorOnData); err != nil && !errors.Is(err, context.Canceled) {
-					logs.Log.Warnf("keylog: %v", err)
-				}
-			}()
-		}
-
-		monitorWg.Wait()
+func (r *Runner) runMonitors() {
+	cfg := r.Config
+	if cfg.Listen == "" && !cfg.Clipboard && !cfg.Keylog {
+		return
 	}
 
-	if cfg.Keyring {
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Scanning kernel keyring")
-		}
-		scanKeyring(scanner, handleFinding)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	onData := func(data []byte, label string) {
+		scanData(r.Scanner, data, label, r.handleFinding)
 	}
 
-	if cfg.Git {
-		gitTargets := cfg.Targets
-		if len(gitTargets) == 0 {
-			gitTargets = []string{"."}
+	var wg sync.WaitGroup
+
+	if cfg.Listen != "" {
+		r.logf("Capturing traffic on interface: %s", cfg.Listen)
+		if cfg.BPFFilter != "" {
+			r.logf("BPF filter: %s", cfg.BPFFilter)
 		}
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Scanning git history for deleted secrets")
-		}
-		scanGitHistory(scanner, gitTargets, handleFinding)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := scanNetwork(ctx, r.Scanner, networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}, r.handleFinding); err != nil && !errors.Is(err, context.Canceled) {
+				logs.Log.Warnf("network capture: %v", err)
+			}
+		}()
 	}
 
-	for _, target := range cfg.Targets {
-		scanner.Scan(target, handleFinding)
+	if cfg.Clipboard {
+		r.logf("Monitoring clipboard")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sysinfo.WatchClipboard(ctx, onData); err != nil && !errors.Is(err, context.Canceled) {
+				logs.Log.Warnf("clipboard: %v", err)
+			}
+		}()
 	}
 
-	stopProgress()
-	elapsed := time.Since(start)
-	if !cfg.Quiet && outputFormat == "text" {
+	if cfg.Keylog {
+		r.logf("Monitoring keystrokes")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sysinfo.WatchKeystrokes(ctx, onData); err != nil && !errors.Is(err, context.Canceled) {
+				logs.Log.Warnf("keylog: %v", err)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// --- finalize ---
+
+func (r *Runner) finalize() error {
+	cfg := r.Config
+
+	if !cfg.Quiet && r.outputFormat == "text" {
 		suppressed := 0
-		if ignFilter != nil {
-			suppressed = ignFilter.suppressed
+		if r.ignFilter != nil {
+			suppressed = r.ignFilter.suppressed
 		}
-		printSummary(scanner.Stats, findingCount, elapsed, sevCount, useColor, suppressed)
-		if baselinedCount > 0 {
-			printBaselineSummary(findingCount+baselinedCount, findingCount, baselinedCount, useColor)
+		printSummary(r.Scanner.Stats, r.findingCount, time.Since(r.startTime), r.sevCount, r.useColor, suppressed)
+		if r.baselinedCount > 0 {
+			printBaselineSummary(r.findingCount+r.baselinedCount, r.findingCount, r.baselinedCount, r.useColor)
 		}
 	}
 
-	if saveFile != nil && !cfg.Quiet {
+	if cfg.SaveFile != "" && !cfg.Quiet {
 		logs.Log.Infof("Results saved to %s", cfg.SaveFile)
 	}
 
 	if cfg.Findings != "" {
-		b := createBaseline(allFindings, baseDir)
+		b := createBaseline(r.allFindings, r.baseDir)
 		if err := saveBaseline(b, cfg.Findings); err != nil {
 			return fmt.Errorf("save findings: %v", err)
 		}
-		if !cfg.Quiet && outputFormat == "text" {
+		if !cfg.Quiet && r.outputFormat == "text" {
 			logs.Log.Infof("Findings saved to %s (%d entries)", cfg.Findings, len(b.Entries))
 		}
 	}
 
-	if outputFormat == "zombie" {
-		writeZombieOutput(out, allFindings, cfg.Quiet)
-		if saveFile != nil {
-			writeZombieOutput(saveFile, allFindings, true)
-		}
+	if r.outputFormat == "zombie" {
+		writeZombieOutput(os.Stdout, r.allFindings, cfg.Quiet)
 	}
 
-	if cfg.Collect != "" && len(allFindings) > 0 {
-		copts := collectOpts{
-			ZipPath:  cfg.Collect,
-			BaseDir:  baseDir,
-			KeepTree: cfg.CollectTree,
-			Findings: allFindings,
-		}
-		if err := collectFiles(copts); err != nil {
+	if cfg.Collect != "" && len(r.allFindings) > 0 {
+		if err := collectFiles(collectOpts{
+			ZipPath: cfg.Collect, BaseDir: r.baseDir,
+			KeepTree: cfg.CollectTree, Findings: r.allFindings,
+		}); err != nil {
 			return fmt.Errorf("collect files: %v", err)
 		}
 	}
 
-	if shouldFail(failOn, sevCount) {
+	if shouldFail(r.failOn, r.sevCount) {
 		return &ExitError{Code: 1, Msg: "findings match --fail-on criteria"}
 	}
 
 	return nil
 }
 
-type autoProfile struct {
-	ID   string `yaml:"id"`
-	Info struct {
-		Name string `yaml:"name"`
-		OS   string `yaml:"os"`
-	} `yaml:"info"`
-	Paths []string `yaml:"paths"`
+// --- helpers ---
+
+func (r *Runner) logf(format string, args ...interface{}) {
+	if !r.Config.Quiet && r.outputFormat == "text" {
+		logs.Log.Infof(format, args...)
+	}
 }
 
-// loadAutoTargets reads auto scan profiles from embedded templates and
-// returns expanded, existing directory paths for the current OS.
-func loadAutoTargets() []string {
-	data := pkg.LoadConfig("found_auto")
-	if len(data) == 0 {
-		return nil
+func (r *Runner) startProgressIfNeeded() func() {
+	if !r.showProgress {
+		return func() {}
 	}
-	var profiles []autoProfile
-	if err := yaml.Unmarshal(data, &profiles); err != nil {
-		return nil
-	}
-
-	currentOS := runtime.GOOS
-	var paths []string
-	for _, p := range profiles {
-		if p.Info.OS != currentOS {
-			continue
-		}
-		for _, rawPath := range p.Paths {
-			for _, expanded := range expandPaths(rawPath) {
-				if _, err := os.Stat(expanded); err == nil {
-					paths = append(paths, expanded)
-				}
-			}
-		}
-	}
-
-	if len(paths) > 0 {
-		logs.Log.Infof("Auto-detected %d targets for %s", len(paths), currentOS)
-	}
-	return paths
-}
-
-// expandPaths expands ~ and environment variables, then resolves globs.
-func expandPaths(raw string) []string {
-	// Expand ~ to home directory
-	if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		raw = filepath.Join(home, raw[2:])
-	} else if raw == "~" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		raw = home
-	}
-
-	// Expand environment variables (%VAR% on Windows, $VAR on Unix)
-	raw = os.ExpandEnv(raw)
-
-	// If contains glob characters, expand
-	if strings.ContainsAny(raw, "*?[") {
-		matches, err := filepath.Glob(raw)
-		if err != nil || len(matches) == 0 {
-			return nil
-		}
-		return matches
-	}
-
-	return []string{raw}
+	return startProgress(r.Scanner)
 }
 
 func templatesHaveRegistryRequests(tmpls []*template.Template) bool {
@@ -618,4 +578,69 @@ func progressBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%dB", b)
 	}
+}
+
+type autoProfile struct {
+	ID   string `yaml:"id"`
+	Info struct {
+		Name string `yaml:"name"`
+		OS   string `yaml:"os"`
+	} `yaml:"info"`
+	Paths []string `yaml:"paths"`
+}
+
+func loadAutoTargets() []string {
+	data := pkg.LoadConfig("found_auto")
+	if len(data) == 0 {
+		return nil
+	}
+	var profiles []autoProfile
+	if err := yaml.Unmarshal(data, &profiles); err != nil {
+		return nil
+	}
+
+	currentOS := runtime.GOOS
+	var paths []string
+	for _, p := range profiles {
+		if p.Info.OS != currentOS {
+			continue
+		}
+		for _, rawPath := range p.Paths {
+			for _, expanded := range expandPaths(rawPath) {
+				if _, err := os.Stat(expanded); err == nil {
+					paths = append(paths, expanded)
+				}
+			}
+		}
+	}
+
+	if len(paths) > 0 {
+		logs.Log.Infof("Auto-detected %d targets for %s", len(paths), currentOS)
+	}
+	return paths
+}
+
+func expandPaths(raw string) []string {
+	if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		raw = filepath.Join(home, raw[2:])
+	} else if raw == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		raw = home
+	}
+	raw = os.ExpandEnv(raw)
+	if strings.ContainsAny(raw, "*?[") {
+		matches, err := filepath.Glob(raw)
+		if err != nil || len(matches) == 0 {
+			return nil
+		}
+		return matches
+	}
+	return []string{raw}
 }

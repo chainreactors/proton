@@ -39,7 +39,6 @@ type ScanOptions struct {
 	Listen      string `long:"listen" description:"capture live traffic on network interface"`
 	BPFFilter   string `long:"bpf" description:"packet filter (e.g. 'port 80')"`
 	Severity    string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
-	MaxSize     string `long:"max-size" description:"max file size to process" default:"1Gb"`
 	TemplateDir string `long:"template-dir" description:"nuclei file templates root directory" default:"/tmp/nuclei-templates/file"`
 	List        bool   `long:"list" description:"list available templates and exit"`
 	Validate    bool   `long:"validate" description:"validate templates and exit"`

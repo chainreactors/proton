@@ -1,6 +1,8 @@
 package runner
 
 type Config struct {
+	// Input
+	Input            string
 	Targets          []string
 	Templates        []string
 	ExcludeTemplates []string
@@ -12,36 +14,20 @@ type Config struct {
 	Expressions      []string
 	ExtFilter        string
 	IgnoreFiles      []string
+	TemplateDir      string
 
-	Output      string
-	JSON        bool
-	SaveFile    string
-	Collect     string
-	CollectTree bool
-	Quiet       bool
-	NoColor     bool
+	// Scope: process
+	PID     int
+	Process string
+	Mem     bool
+	MemAll  bool
+	Env     bool
+	Cmdline bool
+	Fd      bool
+	Conn    bool
+	Pipe    bool
 
-	Auto      bool
-	Bin       bool
-	Listen    string
-	BPFFilter string
-	Severity  string
-	MaxSize   string
-
-	// Process
-	PID           int
-	Process       string
-	Mem           bool
-	MemAll        bool
-	Env           bool
-	Cmdline       bool
-	Fd            bool
-	Conn          bool
-	Pipe          bool
-	Registry      bool
-	RegistryHives []string
-
-	// Filesystem scope
+	// Scope: filesystem
 	Config   bool
 	Home     bool
 	Docker   bool
@@ -49,13 +35,30 @@ type Config struct {
 	History  bool
 	Tmpfs    bool
 	Git      bool
-	Coredump  bool
-	Keyring   bool
+	Coredump bool
+
+	// Scope: system
+	Keyring       bool
+	Registry      bool
+	RegistryHives []string
+
+	// Scope: live monitoring
+	Listen    string
+	BPFFilter string
 	Clipboard bool
 	Keylog    bool
 
-	Input       string
-	TemplateDir string
+	// Output
+	Output      string
+	JSON        bool
+	SaveFile    string
+	Collect     string
+	CollectTree bool
+	Quiet       bool
+	NoColor     bool
+	Bin         bool
+	Auto        bool
+	Severity    string
 	Baseline    string
 	Findings    string
 	FailOn      string

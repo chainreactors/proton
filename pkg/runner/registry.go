@@ -16,15 +16,7 @@ func scanRegistry(scanner *file.Scanner, opts sysinfo.RegistryWalkOptions, callb
 		data := value.Record()
 		label := value.Label()
 		atomic.AddInt64(&scanner.Stats.Bytes, int64(len(data)))
-		for _, group := range scanner.Groups {
-			findings := scanner.ScanData(data, label, group)
-			if len(findings) > 0 {
-				atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
-				for _, finding := range findings {
-					callback(finding)
-				}
-			}
-		}
+		scanData(scanner, data, label, callback)
 		return nil
 	})
 }
