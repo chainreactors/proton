@@ -28,11 +28,9 @@ type Config struct {
 	Severity  string
 	MaxSize   string
 
-	// Process targeting
+	// Process
 	PID     int
 	Process string
-
-	// Process data sources
 	Mem     bool
 	MemAll  bool
 	Env     bool
@@ -42,13 +40,15 @@ type Config struct {
 	Pipe    bool
 
 	// Filesystem scope
-	Config  bool
-	Docker  bool
-	Desktop bool
-	Logs    bool
-	History bool
-	Tmpfs   bool
-	Keyring bool
+	Config   bool
+	Home     bool
+	Docker   bool
+	Logs     bool
+	History  bool
+	Tmpfs    bool
+	Git      bool
+	Coredump bool
+	Keyring  bool
 
 	Input       string
 	TemplateDir string
@@ -57,12 +57,10 @@ type Config struct {
 	FailOn      string
 }
 
-// ProcessScanEnabled returns true if any process-level scan flag is set.
 func (c *Config) ProcessScanEnabled() bool {
 	return c.PID != 0 || c.Process != "" || c.Mem || c.Env || c.Cmdline || c.Fd || c.Conn || c.Pipe
 }
 
-// ProcessSources returns the list of sysinfo source names to scan.
 func (c *Config) ProcessSources() []string {
 	var sources []string
 	if c.Env {
@@ -80,7 +78,6 @@ func (c *Config) ProcessSources() []string {
 	if c.Pipe {
 		sources = append(sources, "pipe")
 	}
-
 	if len(sources) == 0 && !c.Mem {
 		if c.PID != 0 || c.Process != "" {
 			return []string{"env", "cmdline", "fd", "conn", "pipe"}

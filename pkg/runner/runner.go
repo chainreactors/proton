@@ -55,7 +55,8 @@ func New(cfg *Config) (*Runner, error) {
 	targets = append(targets, expandScopeTargets(cfg)...)
 	cfg.Targets = targets
 
-	if len(targets) == 0 && !cfg.ProcessScanEnabled() && !cfg.Keyring && cfg.Listen == "" {
+	hasScope := cfg.ProcessScanEnabled() || cfg.Keyring || cfg.Git || cfg.Listen != ""
+	if len(targets) == 0 && !hasScope {
 		return nil, fmt.Errorf("target (-i), --auto, --pid, or --listen is required, run 'found --help' for usage")
 	}
 
@@ -322,6 +323,17 @@ func (r *Runner) Run() error {
 			logs.Log.Infof("Scanning kernel keyring")
 		}
 		scanKeyring(scanner, handleFinding)
+	}
+
+	if cfg.Git {
+		gitTargets := cfg.Targets
+		if len(gitTargets) == 0 {
+			gitTargets = []string{"."}
+		}
+		if !cfg.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Scanning git history for deleted secrets")
+		}
+		scanGitHistory(scanner, gitTargets, handleFinding)
 	}
 
 	for _, target := range cfg.Targets {

@@ -7,20 +7,50 @@ import (
 	"strconv"
 )
 
-// ConfigPaths returns config/dotfile paths: ~/.*, /etc, ~/.config, ~/Library, %APPDATA%.
+// ConfigPaths returns all configuration paths: dotfiles, /etc, cloud creds,
+// CI configs, container configs, certificate files.
 func ConfigPaths() []string {
 	home, _ := os.UserHomeDir()
 	var paths []string
 
 	if home != "" {
 		dotfiles := []string{
-			".ssh", ".aws", ".gnupg", ".config",
-			".npmrc", ".netrc", ".pgpass", ".my.cnf",
+			// SSH / GPG
+			".ssh", ".gnupg",
+			// Cloud providers
+			".aws", ".gcloud", ".azure", ".oci", ".aliyun",
+			// Container / orchestration
+			".docker", ".kube", ".helm",
+			// Package managers / language tools
+			".npmrc", ".yarnrc", ".pip", ".gem", ".cargo",
+			".nuget", ".m2", ".gradle",
+			// Git credentials
 			".gitconfig", ".git-credentials",
-			".env", ".env.local",
+			// Database client configs
+			".my.cnf", ".pgpass", ".netrc",
+			// App config dirs
+			".config",
+			// Env files
+			".env", ".env.local", ".env.production",
+			// Terraform / IaC
+			".terraform.d",
+			// Vault
+			".vault-token",
 		}
 		for _, d := range dotfiles {
 			p := filepath.Join(home, d)
+			if _, err := os.Stat(p); err == nil {
+				paths = append(paths, p)
+			}
+		}
+
+		// CI config files in home or common project roots
+		ciFiles := []string{
+			".github", ".gitlab-ci.yml", ".circleci",
+			"Jenkinsfile", ".travis.yml",
+		}
+		for _, f := range ciFiles {
+			p := filepath.Join(home, f)
 			if _, err := os.Stat(p); err == nil {
 				paths = append(paths, p)
 			}
@@ -30,13 +60,13 @@ func ConfigPaths() []string {
 	switch runtime.GOOS {
 	case "linux":
 		for _, p := range []string{"/etc"} {
-			if info, err := os.Stat(p); err == nil && info.IsDir() {
+			if dirExists(p) {
 				paths = append(paths, p)
 			}
 		}
 	case "darwin":
 		for _, p := range []string{"/etc", "/usr/local/etc"} {
-			if info, err := os.Stat(p); err == nil && info.IsDir() {
+			if dirExists(p) {
 				paths = append(paths, p)
 			}
 		}
@@ -57,13 +87,13 @@ func ConfigPaths() []string {
 	return paths
 }
 
-// DockerKubePaths returns Docker and Kubernetes config/secret paths.
-func DockerKubePaths() []string {
-	home, _ := os.UserHomeDir()
+// HomePaths returns all user home directories including Desktop/Documents/Downloads.
+func HomePaths() []string {
 	var paths []string
 
+	home, _ := os.UserHomeDir()
 	if home != "" {
-		for _, d := range []string{".docker", ".kube"} {
+		for _, d := range []string{"Desktop", "Documents", "Downloads"} {
 			p := filepath.Join(home, d)
 			if dirExists(p) {
 				paths = append(paths, p)
@@ -71,59 +101,56 @@ func DockerKubePaths() []string {
 		}
 	}
 
-	k8sSecrets := []string{
-		"/var/run/secrets/kubernetes.io",
-		"/run/secrets",
-	}
-	for _, p := range k8sSecrets {
-		if dirExists(p) {
-			paths = append(paths, p)
+	switch runtime.GOOS {
+	case "linux":
+		if dirExists("/home") {
+			entries, _ := os.ReadDir("/home")
+			for _, e := range entries {
+				if e.IsDir() {
+					paths = append(paths, filepath.Join("/home", e.Name()))
+				}
+			}
 		}
-	}
-
-	if runtime.GOOS == "linux" {
-		if dirExists("/var/lib/docker") {
-			paths = append(paths, "/var/lib/docker")
+		if dirExists("/root") {
+			paths = append(paths, "/root")
+		}
+	case "darwin":
+		if dirExists("/Users") {
+			entries, _ := os.ReadDir("/Users")
+			for _, e := range entries {
+				if e.IsDir() && e.Name() != "Shared" {
+					paths = append(paths, filepath.Join("/Users", e.Name()))
+				}
+			}
+		}
+	case "windows":
+		usersDir := `C:\Users`
+		if dirExists(usersDir) {
+			entries, _ := os.ReadDir(usersDir)
+			for _, e := range entries {
+				name := e.Name()
+				if e.IsDir() && name != "Public" && name != "Default" && name != "Default User" && name != "All Users" {
+					paths = append(paths, filepath.Join(usersDir, name))
+				}
+			}
 		}
 	}
 
 	return paths
 }
 
-// DesktopPaths returns user Desktop, Documents, Downloads directories.
-func DesktopPaths() []string {
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		return nil
-	}
-
+// DockerPaths returns Docker runtime data paths (image layers, containers, volumes).
+func DockerPaths() []string {
 	var paths []string
-	for _, d := range []string{"Desktop", "Documents", "Downloads"} {
-		p := filepath.Join(home, d)
-		if dirExists(p) {
-			paths = append(paths, p)
-		}
-	}
-	return paths
-}
-
-// LogsWebappPaths returns log and web application paths.
-func LogsWebappPaths() []string {
-	var paths []string
-
 	candidates := []string{
-		"/var/log",
-		"/var/www",
-		"/srv",
-		"/opt",
+		"/var/lib/docker",
 	}
-
 	if runtime.GOOS == "windows" {
 		candidates = []string{
-			`C:\inetpub`,
+			`C:\ProgramData\Docker`,
+			`C:\ProgramData\DockerDesktop`,
 		}
 	}
-
 	for _, p := range candidates {
 		if dirExists(p) {
 			paths = append(paths, p)
@@ -132,7 +159,29 @@ func LogsWebappPaths() []string {
 	return paths
 }
 
-// TmpfsPaths returns tmpfs/ramfs/shm paths.
+// LogsPaths returns log and web application paths.
+func LogsPaths() []string {
+	var paths []string
+	candidates := []string{
+		"/var/log",
+		"/var/www",
+		"/srv",
+		"/opt",
+	}
+	if runtime.GOOS == "windows" {
+		candidates = []string{
+			`C:\inetpub`,
+		}
+	}
+	for _, p := range candidates {
+		if dirExists(p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// TmpfsPaths returns volatile storage paths.
 func TmpfsPaths() []string {
 	var paths []string
 	candidates := []string{
@@ -141,15 +190,12 @@ func TmpfsPaths() []string {
 		"/run/secrets",
 		"/var/run/secrets",
 	}
-
 	if uid := os.Getuid(); uid >= 0 {
 		candidates = append(candidates, filepath.Join("/run/user", strconv.Itoa(uid)))
 	}
-
 	if runtime.GOOS == "windows" {
 		candidates = []string{os.TempDir()}
 	}
-
 	for _, p := range candidates {
 		if dirExists(p) {
 			paths = append(paths, p)
@@ -164,23 +210,12 @@ func HistoryFiles() []string {
 	if err != nil {
 		return nil
 	}
-
 	names := []string{
-		".bash_history",
-		".zsh_history",
-		".sh_history",
-		".fish_history",
-		".python_history",
-		".node_repl_history",
-		".mysql_history",
-		".psql_history",
-		".rediscli_history",
-		".mongosh",
-		".sqlite_history",
-		".irb_history",
-		".lesshst",
+		".bash_history", ".zsh_history", ".sh_history", ".fish_history",
+		".python_history", ".node_repl_history",
+		".mysql_history", ".psql_history", ".rediscli_history", ".mongosh",
+		".sqlite_history", ".irb_history", ".lesshst",
 	}
-
 	var files []string
 	for _, name := range names {
 		p := filepath.Join(home, name)
@@ -188,7 +223,6 @@ func HistoryFiles() []string {
 			files = append(files, p)
 		}
 	}
-
 	xdg := []string{
 		filepath.Join(home, ".local", "share", "fish", "fish_history"),
 	}
@@ -197,8 +231,50 @@ func HistoryFiles() []string {
 			files = append(files, p)
 		}
 	}
-
 	return files
+}
+
+// CoredumpPaths returns crash dump directories.
+func CoredumpPaths() []string {
+	var paths []string
+
+	switch runtime.GOOS {
+	case "linux":
+		candidates := []string{
+			"/var/crash",
+			"/var/lib/systemd/coredump",
+		}
+		for _, p := range candidates {
+			if dirExists(p) {
+				paths = append(paths, p)
+			}
+		}
+	case "darwin":
+		home, _ := os.UserHomeDir()
+		candidates := []string{
+			"/Library/Logs/DiagnosticReports",
+		}
+		if home != "" {
+			candidates = append(candidates, filepath.Join(home, "Library", "Logs", "DiagnosticReports"))
+		}
+		for _, p := range candidates {
+			if dirExists(p) {
+				paths = append(paths, p)
+			}
+		}
+	case "windows":
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			p := filepath.Join(local, "CrashDumps")
+			if dirExists(p) {
+				paths = append(paths, p)
+			}
+		}
+		if dirExists(`C:\Windows\Minidump`) {
+			paths = append(paths, `C:\Windows\Minidump`)
+		}
+	}
+
+	return paths
 }
 
 func dirExists(p string) bool {

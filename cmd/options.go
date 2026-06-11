@@ -64,13 +64,15 @@ type ScopeOptions struct {
 	Pipe    bool `long:"pipe" description:"scan process named pipes"`
 
 	// Filesystem scope
-	Config  bool `long:"config" description:"scan all config: dotfiles, /etc, ~/.config, ~/Library, %APPDATA%"`
-	Docker  bool `long:"docker" description:"scan Docker/K8s: ~/.docker, ~/.kube, /var/run/secrets/kubernetes.io"`
-	Desktop bool `long:"desktop" description:"scan user Desktop, Documents, Downloads"`
-	Logs    bool `long:"logs" description:"scan logs and web apps: /var/log, /var/www, /srv, /opt"`
-	History bool `long:"history" description:"scan shell/tool history files"`
-	Tmpfs   bool `long:"tmpfs" description:"scan volatile paths: /tmp, /dev/shm, /run/secrets, /run/user"`
-	Keyring bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
+	Config   bool `long:"config" description:"scan configs: dotfiles, /etc, cloud creds, CI files, certs"`
+	Home     bool `long:"home" description:"scan all user homes (/home/*, /root, ~/Desktop, ~/Documents, ~/Downloads)"`
+	Docker   bool `long:"docker" description:"scan Docker runtime: /var/lib/docker image/container layers"`
+	Logs     bool `long:"logs" description:"scan logs and web apps: /var/log, /var/www, /srv, /opt"`
+	History  bool `long:"history" description:"scan shell/tool history files"`
+	Tmpfs    bool `long:"tmpfs" description:"scan volatile: /tmp, /dev/shm, /run/secrets, /run/user"`
+	Git      bool `long:"git" description:"scan git history for deleted secrets"`
+	Coredump bool `long:"coredump" description:"scan crash dumps: /var/crash, /var/lib/systemd/coredump"`
+	Keyring  bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
 }
 
 type TemplateOptions struct {

@@ -14,52 +14,46 @@ func expandScopeTargets(cfg *Config) []string {
 	if cfg.Config {
 		p := sysinfo.ConfigPaths()
 		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: config → %d paths", len(p))
-		}
+		logScope(cfg, "config", len(p))
 	}
-
+	if cfg.Home {
+		p := sysinfo.HomePaths()
+		paths = append(paths, p...)
+		logScope(cfg, "home", len(p))
+	}
 	if cfg.Docker {
-		p := sysinfo.DockerKubePaths()
+		p := sysinfo.DockerPaths()
 		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: docker/kube → %d paths", len(p))
-		}
+		logScope(cfg, "docker", len(p))
 	}
-
-	if cfg.Desktop {
-		p := sysinfo.DesktopPaths()
-		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: desktop → %d paths", len(p))
-		}
-	}
-
 	if cfg.Logs {
-		p := sysinfo.LogsWebappPaths()
+		p := sysinfo.LogsPaths()
 		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: logs/webapp → %d paths", len(p))
-		}
+		logScope(cfg, "logs", len(p))
 	}
-
 	if cfg.Tmpfs {
 		p := sysinfo.TmpfsPaths()
 		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: tmpfs → %d paths", len(p))
-		}
+		logScope(cfg, "tmpfs", len(p))
 	}
-
 	if cfg.History {
 		p := sysinfo.HistoryFiles()
 		paths = append(paths, p...)
-		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: history → %d files", len(p))
-		}
+		logScope(cfg, "history", len(p))
+	}
+	if cfg.Coredump {
+		p := sysinfo.CoredumpPaths()
+		paths = append(paths, p...)
+		logScope(cfg, "coredump", len(p))
 	}
 
 	return paths
+}
+
+func logScope(cfg *Config, name string, count int) {
+	if !cfg.Quiet && count > 0 {
+		logs.Log.Debugf("scope: %s → %d paths", name, count)
+	}
 }
 
 func scanKeyring(scanner *file.Scanner, callback func(file.Finding)) {
@@ -76,5 +70,26 @@ func scanKeyring(scanner *file.Scanner, callback func(file.Finding)) {
 				callback(f)
 			}
 		}
+	}
+}
+
+func scanGitHistory(scanner *file.Scanner, targets []string, callback func(file.Finding)) {
+	seen := make(map[string]bool)
+	for _, target := range targets {
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
+		sysinfo.GitDeletedBlobs(target, func(data []byte, label string) {
+			for _, group := range scanner.Groups {
+				findings := scanner.ScanData(data, label, group)
+				if len(findings) > 0 {
+					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
+					for _, f := range findings {
+						callback(f)
+					}
+				}
+			}
+		})
 	}
 }
