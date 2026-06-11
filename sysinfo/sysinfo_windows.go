@@ -40,21 +40,15 @@ func ReadProcessEnv(pid int) ([]byte, error) {
 	paramsAddr := peb[4] // RTL_USER_PROCESS_PARAMETERS at PEB+0x20
 
 	var envAddr uintptr
-	var envSize uint32
 	err = readProcMem(h, paramsAddr+0x80, unsafe.Pointer(&envAddr), unsafe.Sizeof(envAddr))
 	if err != nil {
 		return nil, fmt.Errorf("read env addr: %w", err)
 	}
-	err = readProcMem(h, paramsAddr+0x80-8, unsafe.Pointer(&envSize), unsafe.Sizeof(envSize))
-	if err != nil {
-		return nil, fmt.Errorf("read env size: %w", err)
-	}
-	if envSize == 0 || envSize > 1<<20 {
-		return nil, fmt.Errorf("invalid env size: %d", envSize)
+	if envAddr == 0 {
+		return nil, fmt.Errorf("empty env addr")
 	}
 
-	buf := make([]byte, envSize)
-	err = readProcMem(h, envAddr, unsafe.Pointer(&buf[0]), uintptr(envSize))
+	buf, err := readUTF16Block(h, envAddr, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("read env block: %w", err)
 	}
@@ -83,14 +77,23 @@ func ReadProcessCmdline(pid int) ([]byte, error) {
 
 	var strLen uint16
 	var strAddr uintptr
-	readProcMem(h, paramsAddr+0x70, unsafe.Pointer(&strLen), 2)
-	readProcMem(h, paramsAddr+0x70+8, unsafe.Pointer(&strAddr), unsafe.Sizeof(strAddr))
+	if err := readProcMem(h, paramsAddr+0x70, unsafe.Pointer(&strLen), 2); err != nil {
+		return nil, fmt.Errorf("read cmdline len: %w", err)
+	}
+	if err := readProcMem(h, paramsAddr+0x70+8, unsafe.Pointer(&strAddr), unsafe.Sizeof(strAddr)); err != nil {
+		return nil, fmt.Errorf("read cmdline addr: %w", err)
+	}
 
 	if strLen == 0 || strLen > 32768 {
 		return nil, nil
 	}
+	if strAddr == 0 {
+		return nil, fmt.Errorf("empty cmdline addr")
+	}
 	buf := make([]byte, strLen)
-	readProcMem(h, strAddr, unsafe.Pointer(&buf[0]), uintptr(strLen))
+	if err := readProcMem(h, strAddr, unsafe.Pointer(&buf[0]), uintptr(strLen)); err != nil {
+		return nil, fmt.Errorf("read cmdline: %w", err)
+	}
 
 	return utf16BytesToUTF8(buf), nil
 }
@@ -185,6 +188,56 @@ func queryProcessBasicInfo(h windows.Handle) (*processBasicInfo, error) {
 func readProcMem(h windows.Handle, addr uintptr, buf unsafe.Pointer, size uintptr) error {
 	var nRead uintptr
 	return windows.ReadProcessMemory(h, addr, (*byte)(buf), size, &nRead)
+}
+
+func readProcMemBytes(h windows.Handle, addr uintptr, size int) ([]byte, error) {
+	if size <= 0 {
+		return nil, nil
+	}
+	buf := make([]byte, size)
+	var nRead uintptr
+	err := windows.ReadProcessMemory(h, addr, &buf[0], uintptr(size), &nRead)
+	if nRead > 0 {
+		return buf[:nRead], err
+	}
+	if err != nil {
+		return nil, err
+	}
+	return buf[:0], nil
+}
+
+func readUTF16Block(h windows.Handle, addr uintptr, max int) ([]byte, error) {
+	const chunkSize = 4096
+	var buf []byte
+	for len(buf) < max {
+		n := chunkSize
+		if remaining := max - len(buf); remaining < n {
+			n = remaining
+		}
+		chunk, err := readProcMemBytes(h, addr+uintptr(len(buf)), n)
+		if len(chunk) > 0 {
+			buf = append(buf, chunk...)
+			if end, ok := utf16DoubleNulEnd(buf); ok {
+				return buf[:end], nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return nil, fmt.Errorf("short read at %#x", addr+uintptr(len(buf)))
+		}
+	}
+	return nil, fmt.Errorf("utf16 block exceeds %d bytes without terminator", max)
+}
+
+func utf16DoubleNulEnd(b []byte) (int, bool) {
+	for i := 0; i+3 < len(b); i += 2 {
+		if b[i] == 0 && b[i+1] == 0 && b[i+2] == 0 && b[i+3] == 0 {
+			return i + 4, true
+		}
+	}
+	return 0, false
 }
 
 func decodeEnvBlock(b []byte) []byte {
