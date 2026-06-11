@@ -52,9 +52,10 @@ func New(cfg *Config) (*Runner, error) {
 	if len(cfg.Targets) > 0 {
 		targets = append(targets, cfg.Targets...)
 	}
+	targets = append(targets, expandScopeTargets(cfg)...)
 	cfg.Targets = targets
 
-	if len(targets) == 0 && !cfg.ProcessScanEnabled() && cfg.Listen == "" {
+	if len(targets) == 0 && !cfg.ProcessScanEnabled() && !cfg.Keyring && cfg.Listen == "" {
 		return nil, fmt.Errorf("target (-i), --auto, --pid, or --listen is required, run 'found --help' for usage")
 	}
 
@@ -314,6 +315,13 @@ func (r *Runner) Run() error {
 				logs.Log.Warnf("network capture: %v", err)
 			}
 		}
+	}
+
+	if cfg.Keyring {
+		if !cfg.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Scanning kernel keyring")
+		}
+		scanKeyring(scanner, handleFinding)
 	}
 
 	for _, target := range cfg.Targets {

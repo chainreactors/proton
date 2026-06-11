@@ -28,9 +28,11 @@ type Config struct {
 	Severity  string
 	MaxSize   string
 
-	// Process scan options
+	// Process targeting
 	PID     int
 	Process string
+
+	// Process data sources
 	Mem     bool
 	MemAll  bool
 	Env     bool
@@ -38,6 +40,12 @@ type Config struct {
 	Fd      bool
 	Conn    bool
 	Pipe    bool
+
+	// System-level sources
+	Shm     bool
+	Tmpfs   bool
+	History bool
+	Keyring bool
 
 	Input       string
 	TemplateDir string
@@ -77,4 +85,9 @@ func (c *Config) ProcessSources() []string {
 		}
 	}
 	return sources
+}
+
+// ScopeScanEnabled returns true if any system-level scope flag is set.
+func (c *Config) ScopeScanEnabled() bool {
+	return c.Shm || c.Tmpfs || c.History || c.Keyring
 }

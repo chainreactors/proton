@@ -4,7 +4,7 @@ type Options struct {
 	InputOptions    `group:"Input Options"`
 	OutputOptions   `group:"Output Options"`
 	ScanOptions     `group:"Scan Options"`
-	ProcessOptions  `group:"Process Scan Options"`
+	ScopeOptions    `group:"Scan Scope"`
 	TemplateOptions `group:"Template Management"`
 	Version         bool `long:"version" description:"print version and exit"`
 }
@@ -49,16 +49,28 @@ type ScanOptions struct {
 	FailOn      string `long:"fail-on" description:"exit with code 1 if findings match severity (e.g. high,critical)"`
 }
 
-type ProcessOptions struct {
-	PID     int    `long:"pid" description:"scan a specific process by PID (0 = all accessible processes)"`
+// ScopeOptions controls which data sources to scan.
+// Process-level sources require --pid or --process to select target processes.
+// System-level sources (--shm, --tmpfs, --history, --keyring) scan well-known paths.
+type ScopeOptions struct {
+	// Process targeting
+	PID     int    `long:"pid" description:"scan a specific process by PID (0 = all accessible)"`
 	Process string `long:"process" description:"scan processes matching name substring"`
-	Mem     bool   `long:"mem" description:"scan process memory regions"`
-	MemAll  bool   `long:"mem-all" description:"scan ALL readable memory regions (default: writable/anonymous only)"`
-	Env     bool   `long:"env" description:"scan process environment variables"`
-	Cmdline bool   `long:"cmdline" description:"scan process command-line arguments"`
-	Fd      bool   `long:"fd" description:"scan process open file descriptors"`
-	Conn    bool   `long:"conn" description:"scan process network connections"`
-	Pipe    bool   `long:"pipe" description:"scan process named pipes"`
+
+	// Process data sources
+	Mem     bool `long:"mem" description:"scan process memory (writable/anonymous regions)"`
+	MemAll  bool `long:"mem-all" description:"scan ALL readable memory regions"`
+	Env     bool `long:"env" description:"scan process environment variables"`
+	Cmdline bool `long:"cmdline" description:"scan process command-line arguments"`
+	Fd      bool `long:"fd" description:"scan process open file descriptors"`
+	Conn    bool `long:"conn" description:"scan process network connections"`
+	Pipe    bool `long:"pipe" description:"scan process named pipes"`
+
+	// System-level sources
+	Shm     bool `long:"shm" description:"scan shared memory (/dev/shm)"`
+	Tmpfs   bool `long:"tmpfs" description:"scan tmpfs paths (/tmp, /run/secrets, /run/user)"`
+	History bool `long:"history" description:"scan shell history files (~/.bash_history, etc)"`
+	Keyring bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
 }
 
 type TemplateOptions struct {
