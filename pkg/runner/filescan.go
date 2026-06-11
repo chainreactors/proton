@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"sync/atomic"
 
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/charlievieth/fastwalk"
@@ -27,13 +26,10 @@ func walkAndScan(scanner *file.Scanner, target string, callback func(file.Findin
 		go func() {
 			defer wg.Done()
 			for job := range jobCh {
-				findings := scanner.ProcessFile(job.path, job.group)
-				if len(findings) > 0 {
-					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
+				contents := scanner.ReadFile(job.path, job.group)
+				for _, c := range contents {
 					cbMu.Lock()
-					for _, f := range findings {
-						callback(f)
-					}
+					scanData(scanner, c.Data, c.Label, callback)
 					cbMu.Unlock()
 				}
 			}

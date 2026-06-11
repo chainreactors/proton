@@ -259,6 +259,28 @@ func ShouldDenyExt(ext string) bool {
 	return ok
 }
 
+// IsArchiveExt returns true if the extension is a recognized archive format.
+func IsArchiveExt(ext string) bool {
+	_, ok := archiveDenyExts[ext]
+	return ok
+}
+
+// IsTextContent checks whether data looks like text (no null bytes, low control char ratio).
+func IsTextContent(data []byte) bool {
+	return isTextContent(data)
+}
+
+// IsTextExt returns true if the extension is a known text file type.
+func IsTextExt(ext string) bool {
+	_, ok := textExtensions[strings.ToLower(ext)]
+	return ok
+}
+
+// MaxReadSize returns the maximum file size the scanner will process.
+func MaxReadSize() int64 {
+	return defaultMaxReadSize
+}
+
 // defaultArchiveDenyList is kept for backward compatibility with existing callers.
 var defaultArchiveDenyList []string
 

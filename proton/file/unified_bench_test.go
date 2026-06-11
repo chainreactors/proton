@@ -177,7 +177,9 @@ func BenchmarkProcessFile(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = scanner.ProcessFile(filePath, group)
+				for _, c := range scanner.ReadFile(filePath, group) {
+					scanner.ScanData(c.Data, c.Label, group)
+				}
 			}
 		})
 	}

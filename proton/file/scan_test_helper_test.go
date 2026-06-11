@@ -23,14 +23,16 @@ func scanDir(s *Scanner, target string, callback func(Finding)) error {
 		go func() {
 			defer wg.Done()
 			for j := range jobCh {
-				findings := s.ProcessFile(j.path, j.group)
-				if len(findings) > 0 {
-					atomic.AddInt64(&s.Stats.Findings, int64(len(findings)))
-					cbMu.Lock()
-					for _, f := range findings {
-						callback(f)
+				for _, c := range s.ReadFile(j.path, j.group) {
+					findings := s.ScanData(c.Data, c.Label, j.group)
+					if len(findings) > 0 {
+						atomic.AddInt64(&s.Stats.Findings, int64(len(findings)))
+						cbMu.Lock()
+						for _, f := range findings {
+							callback(f)
+						}
+						cbMu.Unlock()
 					}
-					cbMu.Unlock()
 				}
 			}
 		}()

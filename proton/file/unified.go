@@ -7,13 +7,10 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/chainreactors/neutron/common"
@@ -366,68 +363,175 @@ func (idx *patternIndex) relevantSourcesBytes(lower []byte, buf *[]int, seen []b
 	return result
 }
 
-// Scan walks target and scans matching files. New orchestration code can call
-// ProcessFile directly, but Scan remains for compatibility with existing users.
-func (s *Scanner) Scan(target string, callback func(Finding)) error {
-	numWorkers := runtime.NumCPU()
-	type fileJob struct {
-		path  string
-		group *scanGroup
+// ReadFile reads a file (or archive entries) and returns their contents as
+// (data, label) pairs for scanning. Handles mmap, text-only filtering, and
+// archive extraction internally.
+func (s *Scanner) ReadFile(path string, group *ScanGroup) []FileContent {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 || info.Size() > MaxReadSize() {
+		return nil
 	}
-	jobCh := make(chan fileJob, numWorkers*256)
-	var cbMu sync.Mutex
-	var wg sync.WaitGroup
 
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobCh {
-				findings := s.ProcessFile(job.path, job.group)
-				if len(findings) > 0 {
-					atomic.AddInt64(&s.Stats.Findings, int64(len(findings)))
-					cbMu.Lock()
-					for _, f := range findings {
-						callback(f)
-					}
-					cbMu.Unlock()
-				}
+	atomic.AddInt64(&s.Stats.Files, 1)
+	atomic.AddInt64(&s.Stats.Bytes, info.Size())
+
+	ext := strings.ToLower(filepath.Ext(path))
+	if IsArchiveExt(ext) {
+		return s.readArchive(path, group)
+	}
+
+	data := readFileData(path, info.Size())
+	if data == nil {
+		return nil
+	}
+
+	if group.UseTextOnly {
+		if ext == "" || !IsTextExt(ext) {
+			sample := data
+			if len(sample) > 1024 {
+				sample = sample[:1024]
 			}
-		}()
+			if !isTextContent(sample) {
+				return nil
+			}
+		}
 	}
 
-	walkErr := parallelWalk(target, func(path string, d fs.DirEntry, err error) error {
+	return []FileContent{{Data: data, Label: path}}
+}
+
+// FileContent holds raw data read from a file or archive entry.
+type FileContent struct {
+	Data  []byte
+	Label string
+}
+
+const mmapMinSize = 32 * 1024
+
+func readFileData(path string, size int64) []byte {
+	if size >= mmapMinSize {
+		f, err := os.Open(path)
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() {
-			if ShouldSkipDir(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
+		mapped, err := mmap.Map(f, mmap.RDONLY, 0)
+		f.Close()
+		if err == nil {
+			result := make([]byte, len(mapped))
+			copy(result, mapped)
+			mapped.Unmap()
+			return result
 		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		ext := filepath.Ext(path)
-		if ShouldDenyExt(ext) {
-			return nil
-		}
-		for _, group := range s.Groups {
-			if !group.MatchesFile(path, ext) {
-				continue
-			}
-			jobCh <- fileJob{path: path, group: group}
-		}
+	}
+	data, _ := os.ReadFile(path)
+	return data
+}
+
+func (s *Scanner) readArchive(archivePath string, group *scanGroup) []FileContent {
+	ext := strings.ToLower(filepath.Ext(archivePath))
+	switch ext {
+	case ".tar":
+		return s.readTar(archivePath, nil)
+	case ".gz", ".tgz":
+		return s.readTarGz(archivePath)
+	case ".zip", ".jar", ".apk":
+		return s.readZip(archivePath)
+	default:
 		return nil
-	})
-	close(jobCh)
-	wg.Wait()
-	return walkErr
+	}
+}
+
+func (s *Scanner) readTar(archivePath string, r io.Reader) []FileContent {
+	if r == nil {
+		f, err := os.Open(archivePath)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		r = f
+	}
+	tr := tar.NewReader(r)
+	var contents []FileContent
+	entries := 0
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		if hdr.Typeflag != tar.TypeReg || hdr.Size == 0 || hdr.Size > maxArchiveEntrySize {
+			continue
+		}
+		if ShouldDenyExt(filepath.Ext(hdr.Name)) {
+			continue
+		}
+		entries++
+		if entries > maxArchiveEntries {
+			break
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, maxArchiveEntrySize))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		contents = append(contents, FileContent{
+			Data:  data,
+			Label: fmt.Sprintf("%s:%s", archivePath, hdr.Name),
+		})
+	}
+	return contents
+}
+
+func (s *Scanner) readTarGz(archivePath string) []FileContent {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil
+	}
+	defer gr.Close()
+	return s.readTar(archivePath, gr)
+}
+
+func (s *Scanner) readZip(archivePath string) []FileContent {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return nil
+	}
+	defer r.Close()
+	var contents []FileContent
+	entries := 0
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || f.UncompressedSize64 == 0 || int64(f.UncompressedSize64) > maxArchiveEntrySize {
+			continue
+		}
+		if ShouldDenyExt(filepath.Ext(f.Name)) {
+			continue
+		}
+		entries++
+		if entries > maxArchiveEntries {
+			break
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, maxArchiveEntrySize))
+		rc.Close()
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		contents = append(contents, FileContent{
+			Data:  data,
+			Label: fmt.Sprintf("%s:%s", archivePath, f.Name),
+		})
+	}
+	return contents
 }
 
 func (g *scanGroup) MatchesFile(path, ext string) bool {
-	if _, ok := archiveDenyExts[ext]; ok {
+	if IsArchiveExt(ext) {
 		return true
 	}
 	if !g.AllExtensions {
@@ -439,71 +543,11 @@ func (g *scanGroup) MatchesFile(path, ext string) bool {
 		return false
 	}
 	if g.UseTextOnly && ext != "" {
-		if _, ok := textExtensions[strings.ToLower(ext)]; !ok {
+		if !IsTextExt(ext) {
 			return false
 		}
 	}
 	return true
-}
-
-const unifiedMmapMinSize = 32 * 1024
-
-// ProcessFile reads a single file (or archive) and returns findings for the given group.
-func (s *Scanner) ProcessFile(path string, group *scanGroup) []Finding {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-	size := info.Size()
-	if size == 0 || size > defaultMaxReadSize {
-		return nil
-	}
-
-	atomic.AddInt64(&s.Stats.Files, 1)
-	atomic.AddInt64(&s.Stats.Bytes, size)
-
-	ext := strings.ToLower(filepath.Ext(path))
-	if _, ok := archiveDenyExts[ext]; ok {
-		return s.processArchive(path, group)
-	}
-
-	var data []byte
-	var mapped mmap.MMap
-	if size >= unifiedMmapMinSize {
-		file, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		mapped, err = mmap.Map(file, mmap.RDONLY, 0)
-		file.Close()
-		if err != nil {
-			data, _ = os.ReadFile(path)
-		} else {
-			data = mapped
-		}
-	} else {
-		data, _ = os.ReadFile(path)
-	}
-	if data == nil {
-		return nil
-	}
-	if mapped != nil {
-		defer mapped.Unmap()
-	}
-
-	if group.UseTextOnly {
-		if ext == "" || func() bool { _, ok := textExtensions[ext]; return !ok }() {
-			sample := data
-			if len(sample) > 1024 {
-				sample = sample[:1024]
-			}
-			if !isTextContent(sample) {
-				return nil
-			}
-		}
-	}
-
-	return s.scanData(data, path, group)
 }
 
 // ScanBlock runs the sliding-window matching pipeline on a binary data block.
@@ -628,110 +672,6 @@ func (s *Scanner) scanData(data []byte, filePath string, group *scanGroup) []Fin
 
 const maxArchiveEntries = 10000
 const maxArchiveEntrySize = 100 * 1024 * 1024
-
-// processArchive scans files inside an archive.
-// Uses stdlib for tar/gz/zip (fastest), falls back to mholt/archiver v3 for other formats.
-func (s *Scanner) processArchive(archivePath string, group *scanGroup) []Finding {
-	ext := strings.ToLower(filepath.Ext(archivePath))
-
-	switch ext {
-	case ".tar":
-		return s.scanTar(archivePath, nil, group)
-	case ".gz", ".tgz":
-		return s.scanTarGz(archivePath, group)
-	case ".zip", ".jar", ".apk":
-		return s.scanZip(archivePath, group)
-	default:
-		return s.scanArchiveFallback(archivePath, group)
-	}
-}
-
-func (s *Scanner) scanTar(archivePath string, r io.Reader, group *scanGroup) []Finding {
-	if r == nil {
-		f, err := os.Open(archivePath)
-		if err != nil {
-			return nil
-		}
-		defer f.Close()
-		r = f
-	}
-	tr := tar.NewReader(r)
-	var findings []Finding
-	entries := 0
-	for {
-		hdr, err := tr.Next()
-		if err != nil {
-			break
-		}
-		if hdr.Typeflag != tar.TypeReg || hdr.Size == 0 || hdr.Size > maxArchiveEntrySize {
-			continue
-		}
-		entryExt := filepath.Ext(hdr.Name)
-		if _, deny := alwaysDenyExts[entryExt]; deny {
-			continue
-		}
-		entries++
-		if entries > maxArchiveEntries {
-			break
-		}
-		data, err := io.ReadAll(io.LimitReader(tr, maxArchiveEntrySize))
-		if err != nil || len(data) == 0 {
-			continue
-		}
-		entryPath := fmt.Sprintf("%s:%s", archivePath, hdr.Name)
-		findings = append(findings, s.scanData(data, entryPath, group)...)
-	}
-	return findings
-}
-
-func (s *Scanner) scanTarGz(archivePath string, group *scanGroup) []Finding {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return nil
-	}
-	defer gr.Close()
-	return s.scanTar(archivePath, gr, group)
-}
-
-func (s *Scanner) scanZip(archivePath string, group *scanGroup) []Finding {
-	r, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil
-	}
-	defer r.Close()
-	var findings []Finding
-	entries := 0
-	for _, f := range r.File {
-		if f.FileInfo().IsDir() || f.UncompressedSize64 == 0 || int64(f.UncompressedSize64) > maxArchiveEntrySize {
-			continue
-		}
-		entryExt := filepath.Ext(f.Name)
-		if _, deny := alwaysDenyExts[entryExt]; deny {
-			continue
-		}
-		entries++
-		if entries > maxArchiveEntries {
-			break
-		}
-		rc, err := f.Open()
-		if err != nil {
-			continue
-		}
-		data, err := io.ReadAll(io.LimitReader(rc, maxArchiveEntrySize))
-		rc.Close()
-		if err != nil || len(data) == 0 {
-			continue
-		}
-		entryPath := fmt.Sprintf("%s:%s", archivePath, f.Name)
-		findings = append(findings, s.scanData(data, entryPath, group)...)
-	}
-	return findings
-}
 
 func (s *Scanner) initFileResults(templates []*ruleRef) []fileResult {
 	results := make([]fileResult, len(templates))
