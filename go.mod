@@ -4,6 +4,10 @@ go 1.22.0
 
 toolchain go1.24.3
 
+require github.com/chainreactors/proton/sysinfo v0.0.0
+
+replace github.com/chainreactors/proton/sysinfo => ./sysinfo
+
 require (
 	github.com/chainreactors/fingers v1.2.0
 	github.com/chainreactors/logs v0.0.0-20260508055944-c678762ed15c

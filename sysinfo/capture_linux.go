@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package cmd
+package sysinfo
 
 import (
 	"fmt"
@@ -16,7 +16,8 @@ type linuxCapture struct {
 	fd int
 }
 
-func openCapture(iface string) (captureHandle, error) {
+// OpenCapture opens a raw packet capture on the given network interface (Linux).
+func OpenCapture(iface string) (CaptureHandle, error) {
 	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
 	if err != nil {
 		return nil, fmt.Errorf("cannot open raw socket on %s: %w (requires root or CAP_NET_RAW)", iface, err)

@@ -1,7 +1,7 @@
 //go:build darwin
 // +build darwin
 
-package cmd
+package sysinfo
 
 import (
 	"encoding/binary"
@@ -18,7 +18,8 @@ type darwinCapture struct {
 	bufLen int
 }
 
-func openCapture(iface string) (captureHandle, error) {
+// OpenCapture opens a BPF packet capture on the given network interface (Darwin/macOS).
+func OpenCapture(iface string) (CaptureHandle, error) {
 	var fd int
 	var err error
 	for i := 0; i < 256; i++ {

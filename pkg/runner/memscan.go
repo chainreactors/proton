@@ -1,4 +1,4 @@
-package cmd
+package runner
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
-	"github.com/chainreactors/proton/proton/sysinfo"
+	"github.com/chainreactors/proton/sysinfo"
 )
 
 type memoryScanOptions struct {

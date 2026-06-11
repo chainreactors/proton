@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package cmd
+package sysinfo
 
 import (
 	"fmt"
@@ -16,7 +16,8 @@ type windowsCapture struct {
 	fd windows.Handle
 }
 
-func openCapture(iface string) (captureHandle, error) {
+// OpenCapture opens a raw socket capture on the given network interface (Windows).
+func OpenCapture(iface string) (CaptureHandle, error) {
 	fd, err := windows.Socket(windows.AF_INET, windows.SOCK_RAW, windows.IPPROTO_TCP)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open raw socket: %w (requires administrator)", err)
@@ -92,4 +93,3 @@ func (c *windowsCapture) Close() error {
 func (c *windowsCapture) HasEthernetHeader() bool {
 	return false
 }
-

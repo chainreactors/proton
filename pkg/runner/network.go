@@ -1,4 +1,4 @@
-package cmd
+package runner
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chainreactors/proton/proton/file"
+	"github.com/chainreactors/proton/sysinfo"
 )
 
 type networkOpts struct {
@@ -84,8 +85,8 @@ func (st *streamTracker) putBuf(buf []byte) {
 	st.bufPool.Put(&buf)
 }
 
-func (st *streamTracker) processPacket(pkt packetInfo) {
-	if len(pkt.Payload) == 0 && pkt.Flags&(tcpSYN|tcpFIN|tcpRST) == 0 {
+func (st *streamTracker) processPacket(pkt sysinfo.PacketInfo) {
+	if len(pkt.Payload) == 0 && pkt.Flags&(sysinfo.TcpSYN|sysinfo.TcpFIN|sysinfo.TcpRST) == 0 {
 		return
 	}
 
@@ -98,7 +99,7 @@ func (st *streamTracker) processPacket(pkt packetInfo) {
 		conn = st.conns[revKey]
 	}
 
-	if pkt.Flags&tcpSYN != 0 && !exists {
+	if pkt.Flags&sysinfo.TcpSYN != 0 && !exists {
 		if len(st.conns) >= maxConns {
 			st.evictOldestLocked()
 		}
@@ -140,18 +141,18 @@ func (st *streamTracker) processPacket(pkt packetInfo) {
 	}
 	st.mu.Unlock()
 
-	if pkt.Flags&tcpSYN != 0 {
+	if pkt.Flags&sysinfo.TcpSYN != 0 {
 		stream.nextSeq = pkt.Seq + 1
 		stream.seqValid = true
 		return
 	}
 
-	if pkt.Flags&(tcpFIN|tcpRST) != 0 {
+	if pkt.Flags&(sysinfo.TcpFIN|sysinfo.TcpRST) != 0 {
 		if len(pkt.Payload) > 0 {
 			st.appendPayload(stream, pkt.Payload, pkt.Seq, conn.label)
 		}
 		st.flushStream(stream, conn.label)
-		if pkt.Flags&tcpRST != 0 {
+		if pkt.Flags&sysinfo.TcpRST != 0 {
 			st.removeConn(fwdKey)
 		}
 		return
@@ -301,14 +302,8 @@ func (st *streamTracker) flushAll() {
 	st.conns = make(map[connKey]*trackedConn)
 }
 
-type captureHandle interface {
-	Read(buf []byte) (int, error)
-	Close() error
-	HasEthernetHeader() bool
-}
-
 func scanNetwork(ctx context.Context, scanner *file.Scanner, opts networkOpts, callback func(file.Finding)) error {
-	handle, err := openCapture(opts.Interface)
+	handle, err := sysinfo.OpenCapture(opts.Interface)
 	if err != nil {
 		return err
 	}
@@ -346,21 +341,21 @@ func scanNetwork(ctx context.Context, scanner *file.Scanner, opts networkOpts, c
 		atomic.AddInt64(&scanner.Stats.Packets, 1)
 		atomic.AddInt64(&scanner.Stats.Bytes, int64(n))
 
-		var pkt packetInfo
+		var pkt sysinfo.PacketInfo
 		var ok bool
 
 		if hasEth {
-			etherType, ipPkt, ethOk := parseEthernet(buf[:n])
+			etherType, ipPkt, ethOk := sysinfo.ParseEthernet(buf[:n])
 			if !ethOk || etherType != 0x0800 {
 				continue // only IPv4 for now
 			}
-			proto, srcIP, dstIP, tcpSeg, ipOk := parseIPv4(ipPkt)
+			proto, srcIP, dstIP, tcpSeg, ipOk := sysinfo.ParseIPv4(ipPkt)
 			if !ipOk || proto != 6 {
 				continue
 			}
-			pkt, ok = parseTCP(tcpSeg, srcIP, dstIP)
+			pkt, ok = sysinfo.ParseTCP(tcpSeg, srcIP, dstIP)
 		} else {
-			pkt, ok = parseRawIP(buf[:n])
+			pkt, ok = sysinfo.ParseRawIP(buf[:n])
 		}
 
 		if !ok {
@@ -368,7 +363,7 @@ func scanNetwork(ctx context.Context, scanner *file.Scanner, opts networkOpts, c
 		}
 
 		if opts.BPFFilter != "" {
-			if !matchUserFilter(opts.BPFFilter, pkt) {
+			if !sysinfo.MatchUserFilter(opts.BPFFilter, pkt) {
 				continue
 			}
 		}
@@ -380,24 +375,4 @@ func scanNetwork(ctx context.Context, scanner *file.Scanner, opts networkOpts, c
 			lastExpire = time.Now()
 		}
 	}
-}
-
-func matchUserFilter(filter string, pkt packetInfo) bool {
-	// simple "port N" filter
-	var port uint16
-	if n, _ := fmt.Sscanf(filter, "port %d", &port); n == 1 {
-		return pkt.SrcPort == port || pkt.DstPort == port
-	}
-	// "host X.X.X.X"
-	var host string
-	if n, _ := fmt.Sscanf(filter, "host %s", &host); n == 1 {
-		ip := net.ParseIP(host).To4()
-		if ip == nil {
-			return true
-		}
-		var addr [4]byte
-		copy(addr[:], ip)
-		return pkt.SrcIP == addr || pkt.DstIP == addr
-	}
-	return true
 }

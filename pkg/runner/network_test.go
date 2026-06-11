@@ -1,4 +1,4 @@
-package cmd
+package runner
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
+	"github.com/chainreactors/proton/sysinfo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,25 +38,25 @@ func TestStreamTrackerBasic(t *testing.T) {
 	}
 
 	// SYN
-	tracker.processPacket(packetInfo{
+	tracker.processPacket(sysinfo.PacketInfo{
 		SrcIP: key.SrcIP, DstIP: key.DstIP,
 		SrcPort: key.SrcPort, DstPort: key.DstPort,
-		Seq: 100, Flags: tcpSYN,
+		Seq: 100, Flags: sysinfo.TcpSYN,
 	})
 
 	// Data with secret
-	tracker.processPacket(packetInfo{
+	tracker.processPacket(sysinfo.PacketInfo{
 		SrcIP: key.SrcIP, DstIP: key.DstIP,
 		SrcPort: key.SrcPort, DstPort: key.DstPort,
-		Seq: 101, Flags: tcpACK,
+		Seq: 101, Flags: sysinfo.TcpACK,
 		Payload: []byte("POST /login HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nusername=admin&password=Secret123!\r\n"),
 	})
 
 	// FIN triggers flush
-	tracker.processPacket(packetInfo{
+	tracker.processPacket(sysinfo.PacketInfo{
 		SrcIP: key.SrcIP, DstIP: key.DstIP,
 		SrcPort: key.SrcPort, DstPort: key.DstPort,
-		Seq: 201, Flags: tcpFIN | tcpACK,
+		Seq: 201, Flags: sysinfo.TcpFIN | sysinfo.TcpACK,
 	})
 
 	assert.True(t, len(findings) > 0, "should find password in stream")
@@ -77,10 +78,10 @@ func TestStreamTrackerRetransmission(t *testing.T) {
 		findings = append(findings, f)
 	})
 
-	pkt := packetInfo{
+	pkt := sysinfo.PacketInfo{
 		SrcIP: [4]byte{1, 1, 1, 1}, DstIP: [4]byte{2, 2, 2, 2},
 		SrcPort: 1000, DstPort: 80,
-		Seq: 100, Flags: tcpACK,
+		Seq: 100, Flags: sysinfo.TcpACK,
 		Payload: []byte("SECRET_ALPHA"),
 	}
 
@@ -104,10 +105,10 @@ func TestStreamTrackerFlushAll(t *testing.T) {
 		findings = append(findings, f)
 	})
 
-	tracker.processPacket(packetInfo{
+	tracker.processPacket(sysinfo.PacketInfo{
 		SrcIP: [4]byte{1, 1, 1, 1}, DstIP: [4]byte{2, 2, 2, 2},
 		SrcPort: 5000, DstPort: 80,
-		Seq: 0, Flags: tcpACK,
+		Seq: 0, Flags: sysinfo.TcpACK,
 		Payload: []byte("Authorization: TOKEN_ABC123DEF456"),
 	})
 

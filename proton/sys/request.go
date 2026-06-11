@@ -6,7 +6,7 @@ import (
 
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
-	"github.com/chainreactors/proton/proton/sysinfo"
+	"github.com/chainreactors/proton/sysinfo"
 )
 
 type Request struct {

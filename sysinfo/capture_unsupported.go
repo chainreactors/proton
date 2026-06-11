@@ -1,12 +1,13 @@
 //go:build !(linux || windows || darwin)
 
-package cmd
+package sysinfo
 
 import (
 	"fmt"
 	"runtime"
 )
 
-func openCapture(iface string) (captureHandle, error) {
+// OpenCapture returns an error on unsupported platforms.
+func OpenCapture(iface string) (CaptureHandle, error) {
 	return nil, fmt.Errorf("network capture is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)
 }

@@ -8,8 +8,7 @@ import (
 	"strings"
 
 	"github.com/chainreactors/logs"
-	"github.com/chainreactors/neutron/protocols"
-	"github.com/chainreactors/proton/template"
+	"github.com/chainreactors/proton/pkg/runner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -74,12 +73,12 @@ func resolveTemplateURL(opts *Options) string {
 }
 
 func runUpdateTemplates(opts *Options) error {
-	useColor := isTTY(os.Stdout) && !opts.NoColor
+	useColor := runner.IsTTY(os.Stdout) && !opts.NoColor
 	if useColor {
 		logs.Log.SetColor(true)
 	}
 	if !opts.Quiet {
-		logs.Log.Console(banner)
+		logs.Log.Console(runner.Banner)
 	}
 
 	templateURL := resolveTemplateURL(opts)
@@ -170,93 +169,30 @@ func countTemplateFiles(dir string) int {
 	return count
 }
 
-func categoryTemplateDirs(tmplDir string, categories []string) []string {
-	seen := make(map[string]bool)
-	var dirs []string
-	for _, cat := range canonicalTemplateCategories(categories) {
-		dir := filepath.Join(tmplDir, filepath.FromSlash("found/"+cat))
-		if seen[dir] {
+func listTemplates(opts *Options) error {
+	tmplDir := resolveTemplateDir(opts)
+	infos := runner.ListTemplates(tmplDir, opts.Templates, opts.Categories)
+
+	useColor := runner.IsTTY(os.Stdout) && !opts.NoColor
+	logs.Log.Consolef("Available templates: %d\n\n", len(infos))
+
+	groups := map[string][]runner.TemplateInfo{}
+	for _, ti := range infos {
+		groups[ti.Severity] = append(groups[ti.Severity], ti)
+	}
+
+	for _, sev := range []string{"critical", "high", "medium", "low", "info", "unknown"} {
+		list := groups[sev]
+		if len(list) == 0 {
 			continue
 		}
-		seen[dir] = true
-		dirs = append(dirs, dir)
-	}
-	return dirs
-}
-
-func canonicalTemplateCategories(categories []string) []string {
-	if len(categories) == 0 {
-		categories = []string{"keys"}
-	}
-
-	seen := make(map[string]bool)
-	var canonical []string
-	add := func(cat string) {
-		if cat == "" || seen[cat] {
-			return
+		marker := runner.SeverityMarker(sev, useColor)
+		logs.Log.Consolef("  [%s] (%d)\n", marker, len(list))
+		for _, t := range list {
+			fmt.Printf("    %-35s %s\n", t.ID, t.Name)
 		}
-		seen[cat] = true
-		canonical = append(canonical, cat)
+		logs.Log.Console("\n")
 	}
 
-	for _, cat := range categories {
-		cat = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(cat, `\`, `/`)), `/`))
-		switch cat {
-		case "":
-			continue
-		case "all":
-			add("keys")
-			add("spray")
-		case "key", "keys", "found/keys", "found_keys":
-			add("keys")
-		case "spray", "found/spray", "found_spray":
-			add("spray")
-		default:
-			cat = strings.TrimPrefix(cat, "found/")
-			cat = strings.TrimPrefix(cat, "found_")
-			add(cat)
-		}
-	}
-	return canonical
-}
-
-// loadLocalTemplates loads templates from found category directories in the local template directory.
-// Returns true if any templates were loaded.
-func loadLocalTemplates(tmpls *[]*template.Template, tmplDir string, categories []string, execOpts *protocols.ExecuterOptions) bool {
-	if _, err := os.Stat(tmplDir); os.IsNotExist(err) {
-		return false
-	}
-
-	var loaded bool
-	for _, catDir := range categoryTemplateDirs(tmplDir, categories) {
-		if info, err := os.Stat(catDir); err == nil && info.IsDir() {
-			ts, _ := loadFromPath(catDir, execOpts)
-			*tmpls = append(*tmpls, ts...)
-			loaded = true
-		}
-	}
-
-	return loaded
-}
-
-// listLocalTemplateInfos returns template info from the local template directory.
-func listLocalTemplateInfos(tmplDir string) []templateInfo {
-	if _, err := os.Stat(tmplDir); os.IsNotExist(err) {
-		return nil
-	}
-
-	var infos []templateInfo
-	filepath.Walk(tmplDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
-			return nil
-		}
-		if ti := getTemplateInfoFromFile(p); ti != nil {
-			infos = append(infos, *ti)
-		}
-		return nil
-	})
-	return infos
+	return nil
 }

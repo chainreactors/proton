@@ -1,8 +1,9 @@
-package cmd
+package sysinfo
 
 import "encoding/binary"
 
-type packetInfo struct {
+// PacketInfo holds parsed TCP/IP packet metadata and payload.
+type PacketInfo struct {
 	SrcIP   [4]byte
 	DstIP   [4]byte
 	SrcPort uint16
@@ -12,14 +13,17 @@ type packetInfo struct {
 	Payload []byte
 }
 
+// TCP flag constants.
 const (
-	tcpFIN = 0x01
-	tcpSYN = 0x02
-	tcpRST = 0x04
-	tcpACK = 0x10
+	TcpFIN = 0x01
+	TcpSYN = 0x02
+	TcpRST = 0x04
+	TcpACK = 0x10
 )
 
-func parseEthernet(frame []byte) (etherType uint16, payload []byte, ok bool) {
+// ParseEthernet extracts the EtherType and payload from an Ethernet frame.
+// It handles 802.1Q VLAN tags transparently.
+func ParseEthernet(frame []byte) (etherType uint16, payload []byte, ok bool) {
 	if len(frame) < 14 {
 		return 0, nil, false
 	}
@@ -36,7 +40,8 @@ func parseEthernet(frame []byte) (etherType uint16, payload []byte, ok bool) {
 	return et, payload, true
 }
 
-func parseIPv4(pkt []byte) (proto uint8, srcIP, dstIP [4]byte, payload []byte, ok bool) {
+// ParseIPv4 extracts protocol, source/destination IPs and payload from an IPv4 packet.
+func ParseIPv4(pkt []byte) (proto uint8, srcIP, dstIP [4]byte, payload []byte, ok bool) {
 	if len(pkt) < 20 {
 		return 0, srcIP, dstIP, nil, false
 	}
@@ -61,7 +66,8 @@ func parseIPv4(pkt []byte) (proto uint8, srcIP, dstIP [4]byte, payload []byte, o
 	return proto, srcIP, dstIP, pkt[ihl:totalLen], true
 }
 
-func parseTCP(seg []byte, srcIP, dstIP [4]byte) (info packetInfo, ok bool) {
+// ParseTCP extracts TCP header fields and payload from a TCP segment.
+func ParseTCP(seg []byte, srcIP, dstIP [4]byte) (info PacketInfo, ok bool) {
 	if len(seg) < 20 {
 		return info, false
 	}
@@ -81,11 +87,11 @@ func parseTCP(seg []byte, srcIP, dstIP [4]byte) (info packetInfo, ok bool) {
 	return info, true
 }
 
-// parseRawIP parses IP+TCP from a raw IP socket (no Ethernet header).
-func parseRawIP(pkt []byte) (info packetInfo, ok bool) {
-	proto, srcIP, dstIP, tcpSeg, ok := parseIPv4(pkt)
+// ParseRawIP parses IP+TCP from a raw IP socket (no Ethernet header).
+func ParseRawIP(pkt []byte) (info PacketInfo, ok bool) {
+	proto, srcIP, dstIP, tcpSeg, ok := ParseIPv4(pkt)
 	if !ok || proto != 6 {
 		return info, false
 	}
-	return parseTCP(tcpSeg, srcIP, dstIP)
+	return ParseTCP(tcpSeg, srcIP, dstIP)
 }

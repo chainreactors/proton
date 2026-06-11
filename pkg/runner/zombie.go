@@ -1,4 +1,4 @@
-package cmd
+package runner
 
 import (
 	"encoding/json"
@@ -343,7 +343,7 @@ func findingHasConnInfo(f Finding) bool {
 	return false
 }
 
-// supplementary: extract all values from a finding for zombie parsing
+// allValues extracts all values from a finding for zombie parsing
 func allValues(f Finding) []string {
 	var vals []string
 	for _, ev := range f.Extracts {
@@ -356,4 +356,3 @@ func allValues(f Finding) []string {
 	}
 	return vals
 }
-

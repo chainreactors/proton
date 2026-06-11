@@ -1,11 +1,11 @@
-package cmd
+package runner
 
 import (
 	"os"
 	"path/filepath"
 
-	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/logs"
+	"github.com/chainreactors/proton/pkg"
 	"github.com/gobwas/glob"
 	"gopkg.in/yaml.v3"
 )

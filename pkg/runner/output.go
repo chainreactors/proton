@@ -1,4 +1,4 @@
-package cmd
+package runner
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 	"github.com/chainreactors/proton/proton/file"
 )
 
-func isTTY(f *os.File) bool {
+func IsTTY(f *os.File) bool {
 	fi, err := f.Stat()
 	if err != nil {
 		return false
@@ -59,7 +59,7 @@ func (o *outputWriter) WriteFinding(f Finding) {
 		}
 	}
 
-	marker := severityMarker(f.Severity, o.color)
+	marker := SeverityMarker(f.Severity, o.color)
 	name := o.applyColor(f.TemplateName, logs.Green)
 	tid := o.applyColor(f.TemplateID, logs.Cyan)
 	if f.MatcherName != "" {
@@ -110,7 +110,8 @@ func (o *outputWriter) applyColor(s string, fn func(string) string) string {
 	return s
 }
 
-func severityMarker(s string, color bool) string {
+// SeverityMarker returns a severity string, optionally colored.
+func SeverityMarker(s string, color bool) string {
 	if !color {
 		return s
 	}
@@ -155,7 +156,7 @@ func printSummary(stats file.ScanStats, findingCount int, elapsed time.Duration,
 			if c, ok := sevCount[s]; ok {
 				part := fmt.Sprintf("%s=%d", s, c)
 				if color && c > 0 {
-					part = severityMarker(part, true)
+					part = SeverityMarker(part, true)
 				}
 				parts = append(parts, part)
 			}

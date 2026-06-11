@@ -10,6 +10,7 @@ import (
 	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/pkg"
+	"github.com/chainreactors/proton/pkg/runner"
 	"github.com/chainreactors/proton/template"
 	"gopkg.in/yaml.v3"
 )
@@ -17,14 +18,13 @@ import (
 var validIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]+([_-][a-zA-Z0-9]+)*$`)
 
 func runTemplateDisplay(opts *Options) error {
-	useColor := isTTY(os.Stdout) && !opts.NoColor
+	useColor := runner.IsTTY(os.Stdout) && !opts.NoColor
 	if useColor {
 		logs.Log.SetColor(true)
 	}
 
 	query := opts.Display
 
-	// If it looks like a file path, read directly
 	if strings.HasSuffix(query, ".yaml") || strings.HasSuffix(query, ".yml") || strings.Contains(query, string(os.PathSeparator)) {
 		data, err := os.ReadFile(query)
 		if err != nil {
@@ -34,7 +34,6 @@ func runTemplateDisplay(opts *Options) error {
 		return nil
 	}
 
-	// Search by template ID in local templates, then embedded
 	if data := findTemplateByID(query, opts); data != nil {
 		fmt.Print(string(data))
 		return nil
@@ -44,21 +43,18 @@ func runTemplateDisplay(opts *Options) error {
 }
 
 func findTemplateByID(id string, opts *Options) []byte {
-	// Search in local template directory
 	tmplDir := resolveTemplateDir(opts)
 	if data := findTemplateInDir(id, tmplDir); data != nil {
 		return data
 	}
 
-	// Search in -t paths
 	for _, path := range opts.Templates {
 		if data := findTemplateInDir(id, path); data != nil {
 			return data
 		}
 	}
 
-	// Search in embedded templates
-	for _, config := range embeddedTemplateConfigs([]string{"all"}) {
+	for _, config := range runner.EmbeddedTemplateConfigs([]string{"all"}) {
 		raw := pkg.LoadConfig(config)
 		if len(raw) == 0 {
 			continue
@@ -127,13 +123,13 @@ type validateResult struct {
 }
 
 func runValidate(opts *Options) error {
-	useColor := isTTY(os.Stdout) && !opts.NoColor
+	useColor := runner.IsTTY(os.Stdout) && !opts.NoColor
 	if useColor {
 		logs.Log.SetColor(true)
 	}
 
 	if !opts.Quiet {
-		logs.Log.Console(banner)
+		logs.Log.Console(runner.Banner)
 	}
 
 	var results []validateResult
@@ -215,7 +211,7 @@ func validateSingleFile(path string) validateResult {
 
 func validateEmbedded() []validateResult {
 	var results []validateResult
-	for _, config := range embeddedTemplateConfigs([]string{"all"}) {
+	for _, config := range runner.EmbeddedTemplateConfigs([]string{"all"}) {
 		data := pkg.LoadConfig(config)
 		if len(data) == 0 {
 			continue

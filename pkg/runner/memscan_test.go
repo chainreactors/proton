@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package cmd
+package runner
 
 import (
 	"os"
@@ -11,7 +11,7 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
-	"github.com/chainreactors/proton/proton/sysinfo"
+	"github.com/chainreactors/proton/sysinfo"
 	"github.com/stretchr/testify/assert"
 )
 
