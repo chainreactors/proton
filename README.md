@@ -1,21 +1,36 @@
 # proton
 
-High-performance file content scanning engine for detecting leaked credentials, API keys, private keys, and other sensitive information in local filesystems.
-
-proton provides two layers:
-
-- **proton** (scanning engine) — `proton/file` package, three-layer scanning pipeline (prefilter → Aho-Corasick → RE2), can be imported as a Go library.
-- **found** (CLI tool) — command-line scanner built on proton, with template management, output formatting, baseline diffing, auto-detection, and archive scanning.
+High-performance content scanning engine for detecting leaked credentials, API keys, private keys, and other sensitive information — in files, process memory, environment variables, and live network traffic.
 
 ## Architecture
 
-proton's scanning pipeline processes each line through three progressively expensive layers, skipping work as early as possible:
+```
+proton/
+├── sysinfo/        # standalone Go module — data acquisition layer
+│   ├── process     # enumerate processes, read env/cmdline/fd/conn/pipe
+│   ├── memory      # cross-platform process memory reading
+│   ├── capture     # raw network packet capture (Linux/macOS/Windows)
+│   ├── stream      # TCP stream reassembly
+│   └── packet      # Ethernet/IPv4/TCP parsing
+├── proton/file/    # scanning engine — prefilter → Aho-Corasick → RE2
+├── proton/sys/     # sys protocol — targeted process scan templates
+├── pkg/runner/     # scan orchestration — Runner API, templates, output
+└── cmd/            # CLI shell (found)
+```
 
-1. **Prefilter** — `bytes.Contains` on raw `[]byte`, zero allocation (~4ns/line), skips lines with no possible match
-2. **Aho-Corasick DFA** — multi-pattern index, selects the relevant regex subset per line
-3. **RE2 regex** — only runs patterns identified by the previous layer (8.4x faster than Go stdlib regex)
+Three layers:
 
-File-level: single directory walk, multi-template evaluation, parallel file processing. Archives (tar/gz/zip/7z/rar) are scanned in streaming mode without disk extraction.
+- **sysinfo** — independent Go module (`sysinfo/go.mod`), zero proton dependency. Reads data from processes, memory, and network. Usable standalone.
+- **proton/file** — scanning engine with three-layer pipeline (prefilter → Aho-Corasick DFA → RE2). Importable as a library.
+- **found** (CLI) / **pkg/runner** — scan orchestration, template management, output formatting. `pkg/runner` exposes a programmatic `Runner` API.
+
+### Scanning Pipeline
+
+Each line passes through progressively expensive layers, skipping work as early as possible:
+
+1. **Prefilter** — `bytes.Contains` on raw `[]byte`, zero allocation (~4ns/line)
+2. **Aho-Corasick DFA** — multi-pattern index, selects relevant regex subset per line
+3. **RE2 regex** — only runs patterns identified by the previous layer (8.4x faster than Go stdlib)
 
 ## Installation
 
@@ -31,7 +46,116 @@ cd proton
 go build -o found .
 ```
 
+## Quick Start
+
+```bash
+# Scan a directory with built-in key-detection templates
+found -i ~/projects
+
+# Auto-detect OS and scan common sensitive directories
+found --auto
+
+# Search with regex directly (like ripgrep)
+found -i ~/projects -e "AKIA[0-9A-Z]{16}"
+
+# Scan process environment variables for secrets
+found --pid 1234 --env
+
+# Scan all processes matching a name
+found --process nginx --env --cmdline
+
+# Scan process memory
+found --pid 1234 --mem
+
+# Capture and scan live network traffic
+found --listen eth0
+
+# Output as JSON
+found -i ~/projects -j -s results.json
+```
+
+## Data Sources
+
+found scans across multiple data sources using the same templates:
+
+| Source | Flag | Description |
+|--------|------|-------------|
+| **Files** | `-i <path>` | Local files and directories (archives auto-extracted) |
+| **Memory** | `--mem` | Process virtual memory regions |
+| **Env** | `--env` | Process environment variables |
+| **Cmdline** | `--cmdline` | Process command-line arguments |
+| **FD** | `--fd` | Open file descriptors |
+| **Connections** | `--conn` | Network connections |
+| **Pipes** | `--pipe` | Named pipes |
+| **Network** | `--listen <iface>` | Live traffic capture with TCP stream reassembly |
+
+## Process Scanning
+
+```bash
+# Scan a specific PID — defaults to all data sources (env, cmdline, fd, conn, pipe)
+found --pid 1234
+
+# Scan only specific sources
+found --pid 1234 --env --cmdline
+
+# Add memory scanning
+found --pid 1234 --mem
+
+# Scan all readable memory regions (including mapped libraries)
+found --pid 1234 --mem-all
+
+# Scan all processes matching a name
+found --process sshd --env
+
+# Scan all accessible processes
+found --pid 0 --env
+```
+
+### sys: Protocol Templates
+
+For targeted process scanning with process/region filtering:
+
+```yaml
+id: chrome-secrets
+info:
+  name: Chrome Process Secret Scanner
+  severity: high
+
+sys:
+  - source: memory
+    process: chrome
+    regions: [heap, stack, anonymous]
+    extractors:
+      - type: regex
+        regex:
+          - "password[=:]\\S+"
+
+  - source: env
+    process: sshd
+    extractors:
+      - type: regex
+        regex:
+          - "(?i)(?:password|secret|token)=\\S+"
+```
+
+## Network Scanning
+
+```bash
+# Capture and scan all traffic on an interface
+found --listen eth0
+
+# Filter by port
+found --listen eth0 --bpf "port 80"
+
+# Scan with custom regex
+found --listen eth0 -e "password=\S+"
+```
+
+TCP streams are reassembled before scanning — matches spanning multiple packets are detected.
+
 ## Using as a Library
+
+### proton/file — Scanning Engine
 
 ```go
 import (
@@ -39,150 +163,121 @@ import (
     "github.com/chainreactors/neutron/protocols"
 )
 
-execOpts := &protocols.ExecuterOptions{
-    Options: &protocols.Options{TextOnly: true},
-}
-
-inputs := []file.Rule{
-    {ID: "my-rule", Name: "My Rule", Severity: "high", Requests: requests},
-}
-
-scanner := file.NewScanner(inputs, execOpts)
+scanner := file.NewScanner(rules, execOpts)
 scanner.Scan("/path/to/target", func(f file.Finding) {
     fmt.Printf("[%s] %s: %s\n", f.Severity, f.TemplateID, f.FilePath)
 })
 ```
 
-## found CLI
+### sysinfo — Data Acquisition (standalone module)
 
-### Quick Start
+```go
+import "github.com/chainreactors/proton/sysinfo"
 
-```bash
-# Scan a directory with default templates (keys category)
-found -i ~/projects
+// Read process environment
+env, _ := sysinfo.ReadProcessEnv(pid)
 
-# Auto-detect OS and scan common sensitive directories
-found --auto
+// Walk process memory
+sysinfo.WalkProcessMemory(pid, sysinfo.MemScanOptions{}, func(data []byte, label string) {
+    // scan data chunk
+})
 
-# Auto-scan and package matched files
-found --auto --collect findings.zip
+// TCP stream reassembly
+reassembler := sysinfo.NewStreamReassembler(func(data []byte, label string) {
+    // scan reassembled stream data
+}, overlapSize, windowSize)
+reassembler.ProcessPacket(pkt)
 
-# Scan with multiple template categories
-found -i ~/projects -c keys,logs
-
-# Only show high/critical severity findings
-found -i ~/projects --severity high,critical
-
-# Output as JSON and save to file
-found -i ~/projects -j -s results.json
-
-# Use custom template files
-found -i ~/projects -t my-rules.yaml -t more-rules/
-
-# Search with regex directly (like ripgrep)
-found -i ~/projects -e "AKIA[0-9A-Z]{16}"
-
-# Filter by template ID
-found -i ~/projects --id private-key --id credential-exposure
-
-# Exclude specific templates
-found -i ~/projects --exclude-id noisy-rule --etags experimental
-
-# List available templates
-found --list
-
-# Validate template files
-found --validate -t my-rules/
-
-# Download/update templates from a git repository
-found --update-templates --template-url <repo>
+// Enumerate processes
+procs, _ := sysinfo.ListProcesses()
 ```
 
-### Usage
+### pkg/runner — Programmatic Runner
 
-```
-found [OPTIONS] -i <target>
+```go
+import "github.com/chainreactors/proton/pkg/runner"
+
+cfg := &runner.Config{
+    Input:      "/path/to/scan",
+    Categories: []string{"keys"},
+    Quiet:      true,
+    Output:     "json",
+}
+r, _ := runner.New(cfg)
+r.Run()
 ```
 
-#### Input Options
+## CLI Reference
+
+### Input Options
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--input` | `-i` | Target file or directory to scan |
 | `--auto` | | Auto-detect OS and scan common sensitive directories |
-| `--template` | `-t` | Template file or directory path (can specify multiple) |
-| `--exclude-template` | | Template file or directory to exclude |
-| `--category` | `-c` | Builtin template categories (default: `keys`) |
-| `--id` | | Filter templates by ID (can specify multiple) |
+| `--template` | `-t` | Template file or directory (can specify multiple) |
+| `--exclude-template` | | Template to exclude |
+| `--category` | `-c` | Template categories (default: `keys`) |
+| `--id` | | Filter templates by ID |
 | `--exclude-id` | | Exclude templates by ID |
-| `--tags` | | Include only templates matching these tags |
-| `--etags` | | Exclude templates matching these tags |
-| `--expression` | `-e` | Regex pattern to search directly (can specify multiple) |
-| `--ext` | | File extensions filter for `-e` mode (e.g. `.go,.py`) |
-| `--ignore` | | Suppress reviewed findings via ignore rules (.foundignore.yaml) |
+| `--tags` | | Include only templates matching tags |
+| `--etags` | | Exclude templates matching tags |
+| `--expression` | `-e` | Regex pattern to search directly |
+| `--ext` | | File extensions filter for `-e` mode |
+| `--ignore` | | Ignore rules file (.foundignore.yaml) |
 
-#### Output Options
+### Output Options
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--output` | `-o` | Output format: `text`, `json`, or `zombie` (default: `text`) |
+| `--output` | `-o` | Format: `text`, `json`, `zombie` (default: `text`) |
 | `--json` | `-j` | Shorthand for `-o json` |
 | `--save` | `-s` | Save results to file |
-| `--collect` | | Collect matched files into a zip archive |
-| `--collect-tree` | | Preserve directory structure in collect zip |
-| `--quiet` | `-q` | Only print findings, no banner or stats |
+| `--collect` | | Collect matched files into zip |
+| `--collect-tree` | | Preserve directory structure in zip |
+| `--quiet` | `-q` | Only print findings |
 | `--no-color` | | Disable colored output |
 
-#### Scan Options
+### Scan Options
 
 | Flag | Description |
 |------|-------------|
-| `--bin` | Include binary/executable files in scan (default: text-only) |
-| `--severity` | Filter by severity, comma-separated (`critical,high,medium,low,info`) |
-| `--max-size` | Max file size to process (default: `1Gb`) |
-| `--template-dir` | Template root directory (default: `/tmp/nuclei-templates/file`) |
-| `--list` | List available templates and exit |
-| `--validate` | Validate template files and exit |
-| `--template-display` | Display template content by ID or file path |
-| `--baseline` | Load baseline file to suppress known findings |
-| `--findings` | Save findings in baseline format |
-| `--fail-on` | Exit with code 1 if findings match severity (e.g. `high,critical`) |
+| `--bin` | Include binary files (default: text-only) |
+| `--listen` | Capture live traffic on network interface |
+| `--bpf` | BPF packet filter (e.g. `port 80`) |
+| `--severity` | Filter by severity (`critical,high,medium,low,info`) |
+| `--baseline` | Suppress known findings from baseline file |
+| `--findings` | Save findings as baseline |
+| `--fail-on` | Exit code 1 if findings match severity |
 
-#### Template Management
+### Process Scan Options
 
 | Flag | Description |
 |------|-------------|
-| `--update-templates` | Download or update templates from a git repository |
-| `--template-url` | Custom template repository URL (saved to config) |
-| `--update-template-dir` | Custom directory for template installation |
+| `--pid` | Scan specific PID (0 = all accessible processes) |
+| `--process` | Scan processes matching name substring |
+| `--mem` | Scan process memory regions |
+| `--mem-all` | Scan ALL readable memory regions |
+| `--env` | Scan environment variables |
+| `--cmdline` | Scan command-line arguments |
+| `--fd` | Scan open file descriptors |
+| `--conn` | Scan network connections |
+| `--pipe` | Scan named pipes |
 
-### Output Example
+### Template Management
 
-#### Text Format
-
-```
-[HIG] private-key (Private Key Detect)
-       File: src/config/server.pem
-       Match: BEGIN RSA PRIVATE KEY
-
-[HIG] credential-exposure (Credential Exposure)
-       File: deploy/docker-compose.yml
-       Match: DB_PASSWORD=s3cret_value
-```
-
-#### JSON Format
-
-```json
-{"template_id":"private-key","template_name":"Private Key Detect","severity":"high","file":"src/config/server.pem","extracts":["BEGIN RSA PRIVATE KEY"]}
-```
+| Flag | Description |
+|------|-------------|
+| `--list` | List available templates |
+| `--validate` | Validate template files |
+| `--template-display` | Display template content |
+| `--update-templates` | Download/update templates from git |
+| `--template-url` | Custom template repository URL |
 
 ## Template Format
 
-Templates use the Nuclei file protocol YAML format:
-
 ```yaml
 id: aws-credentials
-
 info:
   name: AWS Credentials Detection
   severity: critical
@@ -191,36 +286,19 @@ info:
 file:
   - extensions:
       - all
-
     matchers:
       - type: word
         words:
           - "AKIA"
-
     extractors:
       - type: regex
         regex:
           - "AKIA[0-9A-Z]{16}"
 ```
 
-### Template Fields
-
-| Field | Description |
-|-------|-------------|
-| `id` | Unique template identifier |
-| `info.name` | Human-readable template name |
-| `info.severity` | `critical`, `high`, `medium`, `low`, or `info` |
-| `info.tags` | Comma-separated tags for filtering |
-| `file[].extensions` | File extensions to scan (`all` for everything) |
-| `file[].denylist` | Extensions or paths to exclude |
-| `file[].max-size` | Max file size for this template |
-| `file[].matchers` | Matching rules: `word`, `regex`, `binary`, `dsl` |
-| `file[].extractors` | Extraction rules: `regex` (with capture groups), `kval` |
-| `file[].matchers-condition` | `or` (default) or `and` |
-
 ## Benchmark
 
-Intel Core Ultra 9 285H, all 156 built-in templates (863 regex patterns), real source files from a monorepo. Naive = Go stdlib regex, full-body scan per pattern, sequential, no prefilter.
+Intel Core Ultra 9 285H, 156 built-in templates (863 regex patterns), real source files.
 
 | Data | Files | proton | naive | Speedup |
 |------|-------|--------|-------|---------|
@@ -228,22 +306,15 @@ Intel Core Ultra 9 285H, all 156 built-in templates (863 regex patterns), real s
 | 1 MB | 137 | 362 µs | 18.4 s | **50,000x** |
 | 1 GB | 162,258 | 34 ms | ~5h (projected) | **540,000x** |
 
-
 ### File Filtering
 
 | Category | Examples | Behavior |
 |----------|---------|----------|
-| **Media/Font** | .png .jpg .mp4 .mp3 .ttf .woff | Always skipped at walk level |
-| **Executable** | .exe .dll .so .class .pyc | Skipped by default; `--bin` to include |
-| **Archive** | .tar .gz .zip .7z .rar | Auto-scanned inside (streaming, no disk extraction) |
+| **Media/Font** | .png .jpg .mp4 .ttf .woff | Always skipped |
+| **Executable** | .exe .dll .so .class .pyc | Skipped; `--bin` to include |
+| **Archive** | .tar .gz .zip .7z .rar | Auto-scanned (streaming) |
 | **Document** | .pdf .doc .ppt .xls | Skipped by default |
 | **Text/Config** | .go .py .yaml .json .env .pem | Always scanned |
-
-### Directory Pruning
-
-Automatically skipped: `node_modules` `bower_components` `__pycache__` `.tox` `.eggs` `.svn` `.hg` `.idea` `.vscode` `.gradle`
-
-**Not skipped:** `.git` (history may contain leaked credentials), `vendor`, `dist`, `build`
 
 ## License
 
