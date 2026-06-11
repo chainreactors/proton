@@ -21,14 +21,6 @@ func (t *Template) Compile(options *protocols.ExecuterOptions) error {
 		options = &protocols.ExecuterOptions{Options: &protocols.Options{}}
 	}
 
-	if len(t.RequestsSys) > 0 {
-		for _, req := range t.RequestsSys {
-			if err := req.Compile(options); err != nil {
-				return err
-			}
-		}
-	}
-
 	if len(t.RequestsFile) > 0 {
 		for _, req := range t.RequestsFile {
 			if err := req.Compile(options); err != nil {
@@ -45,14 +37,12 @@ func (t *Template) Compile(options *protocols.ExecuterOptions) error {
 		t.TotalRequests = len(t.RequestsFile)
 	}
 
-	if len(t.RequestsFile) == 0 && len(t.RequestsSys) == 0 {
+	if len(t.RequestsFile) == 0 && len(t.RequestsSysRaw) == 0 {
 		return errors.New("no requests defined in template")
 	}
 	return nil
 }
 
-// Execute runs this template against input (a file or directory path) and
-// returns the aggregated operator result. Uses the Scanner engine internally.
 func (t *Template) Execute(input string, payload map[string]interface{}) (*operators.Result, error) {
 	if t.scanner == nil {
 		return nil, errors.New("template not compiled or has no file requests")
@@ -83,7 +73,6 @@ func (t *Template) Execute(input string, payload map[string]interface{}) (*opera
 	return merged, nil
 }
 
-// ScanData runs this template's scanner against in-memory data and returns findings.
 func (t *Template) ScanData(data []byte, label string) []file.Finding {
 	if t.scanner == nil {
 		return nil
@@ -95,7 +84,6 @@ func (t *Template) ScanData(data []byte, label string) []file.Finding {
 	return findings
 }
 
-// ScanBlock runs this template's scanner against binary data and returns findings.
 func (t *Template) ScanBlock(data []byte, label string) []file.Finding {
 	if t.scanner == nil {
 		return nil

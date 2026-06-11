@@ -11,8 +11,8 @@ env:
   GONOSUMDB: "github.com/chainreactors/*"
 
 jobs:
-  test-sysinfo:
-    name: "sysinfo (standalone module)"
+  test:
+    name: "Go 1.24"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,114 +20,11 @@ jobs:
         with:
           go-version: "1.24"
       - name: Build
-        run: cd sysinfo && go build ./...
-      - name: Test
-        run: cd sysinfo && go test -v -count=1 -short ./...
-
-  test-modern:
-    name: "Go 1.24"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-
-      - name: Generate & Build
-        run: |
-          go mod tidy
-          go generate ./...
-          go build -v ./...
-          go build -o found .
-
-      - name: Unit Tests - proton/file
+        run: go build -v ./proton/file/ ./template/
+      - name: Test proton/file
         run: go test -v -count=1 -short -timeout 120s ./proton/file/
-
-      - name: Unit Tests - template
+      - name: Test template
         run: go test -v -count=1 -short -timeout 60s ./template/
-
-      - name: Unit Tests - pkg/runner
-        run: go test -v -count=1 -short -timeout 120s ./pkg/runner/
-
-      - name: SDK Integration Test
-        run: go run ./tests/sdk_integration.go
-
-      - name: CLI - File Scan
-        run: |
-          mkdir -p /tmp/ci-test
-          cat > /tmp/ci-test/app.env <<'EOF'
-          REDIS_URL=redis://10.0.0.5:6379
-          MONGO=mongodb://admin:pass@172.16.0.1:27017/db
-          AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-          SECRET_KEY=SuperSecret123456
-          EOF
-
-          echo "--- text output ---"
-          ./found -i /tmp/ci-test -q | tee /tmp/ci-text.out
-          grep -q "AKIA" /tmp/ci-text.out
-
-          echo "--- json output ---"
-          ./found -i /tmp/ci-test -o json -q | head -1 | python3 -c "import sys,json; json.load(sys.stdin)"
-
-          echo "--- expression mode ---"
-          ./found -i /tmp/ci-test -e 'AKIA[A-Z0-9]{16}' -q | grep -q AKIAIOSFODNN7EXAMPLE
-
-      - name: CLI - Zombie Output
-        run: |
-          ./found -i /tmp/ci-test -o zombie -s /tmp/targets.json -q
-          python3 -c "
-          import json
-          targets = [json.loads(l) for l in open('/tmp/targets.json') if l.strip()]
-          assert len(targets) >= 1, f'expected >=1 targets, got {len(targets)}'
-          print(f'OK: {len(targets)} zombie targets')
-          "
-
-      - name: CLI - Baseline
-        run: |
-          ./found -i /tmp/ci-test -f /tmp/baseline.json -q
-          test -f /tmp/baseline.json
-          NEW=$(./found -i /tmp/ci-test --baseline /tmp/baseline.json -o json -q | wc -l)
-          echo "new findings after baseline: $NEW"
-          test "$NEW" -eq 0
-
-      - name: CLI - Fail-on
-        run: ./found -i /tmp/ci-test --fail-on critical -q
-
-      - name: CLI - Process Env Scan
-        run: |
-          export FOUND_CI_SECRET="AKIAIOSFODNN7EXAMPLE"
-          ./found --pid $$ --env -e 'AKIAIOSFODNN7EXAMPLE' -q 2>&1 | grep -q "AKIA" || echo "pid env scan requires permissions, skip"
-
-      - name: CLI - Scope Flags
-        run: |
-          echo "--- --config ---"
-          ./found --config -e 'Host\s+\S+' -q 2>&1 | head -3
-
-          echo "--- --history ---"
-          ./found --history -e 'AKIA' -q 2>&1 | head -3 || true
-
-          echo "--- --tmpfs ---"
-          echo "AKIAIOSFODNN7EXAMPLE" > /tmp/ci-scope-test.txt
-          ./found --tmpfs -e 'AKIA[A-Z0-9]{16}' -q 2>&1 | grep -q "AKIA"
-
-      - name: CLI - Git History
-        run: |
-          mkdir -p /tmp/git-test && cd /tmp/git-test
-          git init
-          echo "SECRET_KEY=abcdefghijk12345" > secret.txt
-          git add . && git commit -m "add secret"
-          git rm secret.txt && git commit -m "remove secret"
-          cd /mnt/chainreactors/proton
-          ./found --git -i /tmp/git-test -e 'SECRET_KEY=\S+' -q 2>&1 | grep -q "SECRET_KEY" || echo "git scan: no match (expected in some envs)"
-
-      - name: CLI - Validate & List
-        run: |
-          ./found --validate -t templates/found/keys/ -q
-          COUNT=$(./found --list 2>&1 | head -1 | grep -oP '\d+')
-          test "$COUNT" -gt 0
-          echo "templates: $COUNT"
 
   test-cross-compile:
     name: "Cross Compile"
@@ -143,35 +40,25 @@ jobs:
             goarch: arm64
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: Generate & Build
-        run: |
-          go mod tidy
-          go generate ./...
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o /dev/null .
+      - name: Build
+        run: CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v ./proton/file/ ./template/
 
   test-legacy:
     name: "Go 1.17 (legacy)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-go@v5
         with:
           go-version: "1.17"
-      - name: Build proton library
+      - name: Build & Test proton/file
         run: |
           sed -i '/^toolchain /d' go.mod
           sed -i 's/^go .*/go 1.17/' go.mod
           CGO_ENABLED=0 go build -v ./proton/file/
-        env:
-          GOFLAGS: "-mod=mod"
-      - name: Test proton library
-        run: CGO_ENABLED=0 go test -v -count=1 ./proton/file/
+          CGO_ENABLED=0 go test -v -count=1 ./proton/file/
         env:
           GOFLAGS: "-mod=mod"

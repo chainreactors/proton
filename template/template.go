@@ -2,7 +2,6 @@ package template
 
 import (
 	"github.com/chainreactors/proton/proton/file"
-	"github.com/chainreactors/proton/proton/sys"
 )
 
 type Template struct {
@@ -18,9 +17,17 @@ type Template struct {
 	} `json:"info" yaml:"info"`
 
 	RequestsFile []*file.Request `json:"file" yaml:"file"`
-	RequestsSys  []*sys.Request  `json:"sys" yaml:"sys"`
+
+	// RequestsSysRaw holds unparsed sys protocol requests.
+	// Parsed by downstream consumers (e.g. found) that have the sys package.
+	RequestsSysRaw []interface{} `json:"sys,omitempty" yaml:"sys,omitempty"`
 
 	TotalRequests int `yaml:"-" json:"-"`
 
 	scanner *file.Scanner `yaml:"-" json:"-"`
+}
+
+// HasSysRequests returns true if the template has unparsed sys requests.
+func (t *Template) HasSysRequests() bool {
+	return len(t.RequestsSysRaw) > 0
 }
