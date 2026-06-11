@@ -88,7 +88,7 @@ func BenchmarkScanner_SmallFiles(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var count int
-		scanner.Scan(dir, func(f Finding) { count++ })
+		scanDir(scanner, dir, func(f Finding) { count++ })
 		b.ReportMetric(float64(1000)/b.Elapsed().Seconds(), "files/sec")
 	}
 }
@@ -104,7 +104,7 @@ func BenchmarkScanner_LargeFiles(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var count int
-		scanner.Scan(dir, func(f Finding) { count++ })
+		scanDir(scanner, dir, func(f Finding) { count++ })
 	}
 }
 
@@ -119,7 +119,7 @@ func BenchmarkScanner_ManyTemplates(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var count int
-		scanner.Scan(dir, func(f Finding) { count++ })
+		scanDir(scanner, dir, func(f Finding) { count++ })
 	}
 }
 
@@ -134,7 +134,7 @@ func BenchmarkScanner_LowMatchRate(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var count int
-		scanner.Scan(dir, func(f Finding) { count++ })
+		scanDir(scanner, dir, func(f Finding) { count++ })
 	}
 }
 
@@ -149,7 +149,7 @@ func BenchmarkScanner_HighMatchRate(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var count int
-		scanner.Scan(dir, func(f Finding) { count++ })
+		scanDir(scanner, dir, func(f Finding) { count++ })
 	}
 }
 

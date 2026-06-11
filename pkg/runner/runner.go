@@ -37,15 +37,15 @@ type Runner struct {
 	templates []*template.Template
 
 	// scan state — populated during Run()
-	execOpts     *protocols.ExecuterOptions
-	sysRules     []sysRule
+	execOpts      *protocols.ExecuterOptions
+	sysRules      []sysRule
 	registryRules []sysRule
-	writer       *outputWriter
-	saveWriter   *outputWriter
-	ignFilter    *ignoreFilter
-	baseline     *Baseline
-	failOn       map[string]bool
-	sevFilter    map[string]bool
+	writer        *outputWriter
+	saveWriter    *outputWriter
+	ignFilter     *ignoreFilter
+	baseline      *Baseline
+	failOn        map[string]bool
+	sevFilter     map[string]bool
 
 	outputFormat string
 	baseDir      string
@@ -53,11 +53,11 @@ type Runner struct {
 	showProgress bool
 	startTime    time.Time
 
-	seen          map[string]bool
-	sevCount      map[string]int
-	findingCount  int
+	seen           map[string]bool
+	sevCount       map[string]int
+	findingCount   int
 	baselinedCount int
-	allFindings   []Finding
+	allFindings    []Finding
 }
 
 func New(cfg *Config) (*Runner, error) {

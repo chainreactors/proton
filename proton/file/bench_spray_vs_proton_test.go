@@ -295,7 +295,7 @@ func BenchmarkProtonScanFile(b *testing.B) {
 			b.SetBytes(int64(len(body)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				scanner.Scan(tmpDir, func(f Finding) {})
+				scanDir(scanner, tmpDir, func(f Finding) {})
 			}
 		})
 	}

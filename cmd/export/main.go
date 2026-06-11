@@ -130,7 +130,7 @@ func ProtonScanDir(handle C.int, target *C.char) *C.char {
 	var mu sync.Mutex
 	var findings []findingJSON
 
-	s.Scan(goTarget, func(f file.Finding) {
+	callback := func(f file.Finding) {
 		fj := findingJSON{
 			TemplateID:   f.TemplateID,
 			TemplateName: f.TemplateName,
@@ -142,6 +142,31 @@ func ProtonScanDir(handle C.int, target *C.char) *C.char {
 		mu.Lock()
 		findings = append(findings, fj)
 		mu.Unlock()
+	}
+
+	filepath.Walk(goTarget, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			if info != nil && info.IsDir() && file.ShouldSkipDir(info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if file.ShouldDenyExt(ext) {
+			return nil
+		}
+		for _, group := range s.Groups {
+			if !group.MatchesFile(path, ext) {
+				continue
+			}
+			for _, f := range s.ProcessFile(path, group) {
+				callback(f)
+			}
+		}
+		return nil
 	})
 
 	data, _ := json.Marshal(findings)

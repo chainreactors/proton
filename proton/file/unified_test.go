@@ -47,7 +47,7 @@ func collectFindings(t *testing.T, scanner *Scanner, target string) []Finding {
 	t.Helper()
 	var mu sync.Mutex
 	var findings []Finding
-	err := scanner.Scan(target, func(f Finding) {
+	err := scanDir(scanner, target, func(f Finding) {
 		mu.Lock()
 		findings = append(findings, f)
 		mu.Unlock()

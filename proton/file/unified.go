@@ -19,8 +19,8 @@ import (
 	"github.com/chainreactors/neutron/common"
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
-	mmap "github.com/edsrzf/mmap-go"
 	"github.com/chainreactors/utils/ahocorasick"
+	mmap "github.com/edsrzf/mmap-go"
 )
 
 type patternSource struct {
@@ -366,6 +366,8 @@ func (idx *patternIndex) relevantSourcesBytes(lower []byte, buf *[]int, seen []b
 	return result
 }
 
+// Scan walks target and scans matching files. New orchestration code can call
+// ProcessFile directly, but Scan remains for compatibility with existing users.
 func (s *Scanner) Scan(target string, callback func(Finding)) error {
 	numWorkers := runtime.NumCPU()
 	type fileJob struct {
@@ -394,13 +396,12 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 		}()
 	}
 
-	// Stream dispatch: walk and process in parallel.
 	walkErr := parallelWalk(target, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if _, skip := defaultSkipDirs[d.Name()]; skip {
+			if ShouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -409,7 +410,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 			return nil
 		}
 		ext := filepath.Ext(path)
-		if _, deny := alwaysDenyExts[ext]; deny {
+		if ShouldDenyExt(ext) {
 			return nil
 		}
 		for _, group := range s.Groups {
@@ -732,7 +733,6 @@ func (s *Scanner) scanZip(archivePath string, group *scanGroup) []Finding {
 	return findings
 }
 
-
 func (s *Scanner) initFileResults(templates []*ruleRef) []fileResult {
 	results := make([]fileResult, len(templates))
 	for i, t := range templates {
@@ -844,5 +844,3 @@ func buildFinding(tmplRef *ruleRef, res *fileResult, filePath string) *Finding {
 		},
 	}
 }
-
-

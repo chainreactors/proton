@@ -197,7 +197,7 @@ func TestBenchmarkTiers(t *testing.T) {
 		scanner := file.NewScanner(tmpl.rules, execOpts)
 
 		start := time.Now()
-		scanner.Scan(stageDir, func(fd file.Finding) {})
+		walkAndScan(scanner, stageDir, func(fd file.Finding) {})
 		protonDur := time.Since(start)
 
 		// naive: directly measure up to 1MB, project beyond

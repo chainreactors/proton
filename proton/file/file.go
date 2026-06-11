@@ -134,12 +134,12 @@ func isTextContent(data []byte) bool {
 
 // FilterConfig allows callers to override the default extension and directory filters.
 type FilterConfig struct {
-	AlwaysDenyExts map[string]struct{}
-	ExecDenyExts   map[string]struct{}
+	AlwaysDenyExts  map[string]struct{}
+	ExecDenyExts    map[string]struct{}
 	ArchiveDenyExts map[string]struct{}
-	DocDenyExts    map[string]struct{}
-	MiscDenyExts   map[string]struct{}
-	SkipDirs       map[string]struct{}
+	DocDenyExts     map[string]struct{}
+	MiscDenyExts    map[string]struct{}
+	SkipDirs        map[string]struct{}
 }
 
 // SetFilters replaces the package-level filter maps with values from cfg.
