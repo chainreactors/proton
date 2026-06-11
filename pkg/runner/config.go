@@ -29,15 +29,17 @@ type Config struct {
 	MaxSize   string
 
 	// Process
-	PID     int
-	Process string
-	Mem     bool
-	MemAll  bool
-	Env     bool
-	Cmdline bool
-	Fd      bool
-	Conn    bool
-	Pipe    bool
+	PID           int
+	Process       string
+	Mem           bool
+	MemAll        bool
+	Env           bool
+	Cmdline       bool
+	Fd            bool
+	Conn          bool
+	Pipe          bool
+	Registry      bool
+	RegistryHives []string
 
 	// Filesystem scope
 	Config   bool
@@ -45,6 +47,7 @@ type Config struct {
 	Docker   bool
 	Logs     bool
 	History  bool
+	Browser  bool
 	Tmpfs    bool
 	Git      bool
 	Coredump bool
@@ -59,6 +62,10 @@ type Config struct {
 
 func (c *Config) ProcessScanEnabled() bool {
 	return c.PID != 0 || c.Process != "" || c.Mem || c.Env || c.Cmdline || c.Fd || c.Conn || c.Pipe
+}
+
+func (c *Config) RegistryScanEnabled() bool {
+	return c.Registry || len(c.RegistryHives) > 0
 }
 
 func (c *Config) ProcessSources() []string {

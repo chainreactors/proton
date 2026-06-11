@@ -63,12 +63,17 @@ type ScopeOptions struct {
 	Conn    bool `long:"conn" description:"scan process network connections"`
 	Pipe    bool `long:"pipe" description:"scan process named pipes"`
 
+	// Registry sources
+	Registry      bool     `long:"registry" description:"scan important Windows registry locations"`
+	RegistryHives []string `long:"registry-hive" description:"scan an offline Windows registry hive file (can specify multiple)"`
+
 	// Filesystem scope
-	Config   bool `long:"config" description:"scan configs: dotfiles, /etc, cloud creds, CI files, certs"`
+	Config   bool `long:"config" description:"scan configs: dotfiles, /etc, cron, cloud creds, CI, WiFi, certs"`
 	Home     bool `long:"home" description:"scan all user homes (/home/*, /root, ~/Desktop, ~/Documents, ~/Downloads)"`
 	Docker   bool `long:"docker" description:"scan Docker runtime: /var/lib/docker image/container layers"`
 	Logs     bool `long:"logs" description:"scan logs and web apps: /var/log, /var/www, /srv, /opt"`
 	History  bool `long:"history" description:"scan shell/tool history files"`
+	Browser  bool `long:"browser" description:"scan browser profiles: Chrome, Firefox, Edge saved credentials/cookies"`
 	Tmpfs    bool `long:"tmpfs" description:"scan volatile: /tmp, /dev/shm, /run/secrets, /run/user"`
 	Git      bool `long:"git" description:"scan git history for deleted secrets"`
 	Coredump bool `long:"coredump" description:"scan crash dumps: /var/crash, /var/lib/systemd/coredump"`

@@ -17,6 +17,7 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/pkg"
 	"github.com/chainreactors/proton/proton/file"
+	"github.com/chainreactors/proton/sysinfo"
 	"github.com/chainreactors/proton/template"
 	"gopkg.in/yaml.v3"
 )
@@ -55,10 +56,7 @@ func New(cfg *Config) (*Runner, error) {
 	targets = append(targets, expandScopeTargets(cfg)...)
 	cfg.Targets = targets
 
-	hasScope := cfg.ProcessScanEnabled() || cfg.Keyring || cfg.Git || cfg.Listen != ""
-	if len(targets) == 0 && !hasScope {
-		return nil, fmt.Errorf("target (-i), --auto, --pid, or --listen is required, run 'found --help' for usage")
-	}
+	hasScope := cfg.ProcessScanEnabled() || cfg.RegistryScanEnabled() || cfg.Keyring || cfg.Git || cfg.Listen != ""
 
 	var tmpls []*template.Template
 	hasExplicitTemplates := len(cfg.Templates) > 0
@@ -72,6 +70,9 @@ func New(cfg *Config) (*Runner, error) {
 	}
 	if len(tmpls) == 0 && len(cfg.Expressions) == 0 {
 		return nil, fmt.Errorf("no templates loaded — use -t to specify templates, -c for categories, or -e for regex")
+	}
+	if len(targets) == 0 && !hasScope && !templatesHaveRegistryRequests(tmpls) {
+		return nil, fmt.Errorf("target (-i), --auto, --pid, --registry, or --listen is required, run 'found --help' for usage")
 	}
 
 	execOpts := &protocols.ExecuterOptions{
@@ -178,14 +179,20 @@ func (r *Runner) Run() error {
 		Options: &protocols.Options{TextOnly: !cfg.Bin},
 	}
 	var sysRules []sysRule
+	var registryRules []sysRule
 	for _, tmpl := range r.templates {
 		for _, req := range tmpl.RequestsSys {
-			sysRules = append(sysRules, sysRule{
+			rule := sysRule{
 				ID:       tmpl.Id,
 				Name:     tmpl.Info.Name,
 				Severity: tmpl.Info.Severity,
 				Request:  req,
-			})
+			}
+			if req.Source == sysinfo.SourceRegistry {
+				registryRules = append(registryRules, rule)
+			} else {
+				sysRules = append(sysRules, rule)
+			}
 		}
 	}
 
@@ -295,6 +302,34 @@ func (r *Runner) Run() error {
 					}
 				}
 			}
+		}
+	}
+
+	if cfg.RegistryScanEnabled() {
+		if !cfg.Quiet && outputFormat == "text" {
+			if len(cfg.RegistryHives) > 0 {
+				logs.Log.Infof("Scanning Windows registry (%d hive file(s))", len(cfg.RegistryHives))
+			} else {
+				logs.Log.Infof("Scanning Windows registry")
+			}
+		}
+		if err := scanRegistry(scanner, defaultRegistryOptionsFromConfig(cfg), handleFinding); err != nil {
+			if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() {
+				return fmt.Errorf("registry scan failed: %v", err)
+			}
+			logs.Log.Warnf("registry scan: %v", err)
+		}
+	}
+
+	if len(registryRules) > 0 {
+		if !cfg.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Scanning Windows registry with %d sys rule(s)", len(registryRules))
+		}
+		if err := scanRegistryWithSysRules(registryRules, execOpts, handleFinding); err != nil {
+			if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() && !cfg.RegistryScanEnabled() {
+				return fmt.Errorf("registry sys scan failed: %v", err)
+			}
+			logs.Log.Warnf("registry sys scan: %v", err)
 		}
 	}
 
@@ -465,6 +500,17 @@ func expandPaths(raw string) []string {
 	}
 
 	return []string{raw}
+}
+
+func templatesHaveRegistryRequests(tmpls []*template.Template) bool {
+	for _, tmpl := range tmpls {
+		for _, req := range tmpl.RequestsSys {
+			if req.Source == sysinfo.SourceRegistry {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseSeverityFilter(s string) map[string]bool {
