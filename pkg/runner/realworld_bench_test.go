@@ -157,6 +157,9 @@ func TestBenchmarkTiers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
+	if _, err := os.Stat(sourceDir); err != nil {
+		t.Skipf("source dir %s not available: %v", sourceDir, err)
+	}
 	tmpl := getTemplates(t)
 	t.Logf("templates: %d (%d regex patterns)", len(tmpl.tmpls), len(tmpl.regexps))
 

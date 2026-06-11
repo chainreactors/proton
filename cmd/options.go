@@ -4,6 +4,7 @@ type Options struct {
 	InputOptions    `group:"Input Options"`
 	OutputOptions   `group:"Output Options"`
 	ScanOptions     `group:"Scan Options"`
+	ProcessOptions  `group:"Process Scan Options"`
 	TemplateOptions `group:"Template Management"`
 	Version         bool `long:"version" description:"print version and exit"`
 }
@@ -35,8 +36,6 @@ type OutputOptions struct {
 type ScanOptions struct {
 	Auto        bool   `long:"auto" description:"auto-detect OS and scan common sensitive directories"`
 	Bin         bool   `long:"bin" description:"include binary files in scan (default: text-only)"`
-	PID         int    `long:"pid" description:"scan process memory by PID"`
-	MemAll      bool   `long:"mem" description:"scan all readable memory regions (default: writable/anonymous only)"`
 	Listen      string `long:"listen" description:"capture live traffic on network interface"`
 	BPFFilter   string `long:"bpf" description:"packet filter (e.g. 'port 80')"`
 	Severity    string `long:"severity" description:"filter by severity, comma-separated (critical,high,medium,low,info)"`
@@ -48,6 +47,18 @@ type ScanOptions struct {
 	Baseline    string `long:"baseline" description:"load baseline file to suppress known findings"`
 	Findings    string `short:"f" long:"findings" description:"save findings in baseline format (can be used as future --baseline input)"`
 	FailOn      string `long:"fail-on" description:"exit with code 1 if findings match severity (e.g. high,critical)"`
+}
+
+type ProcessOptions struct {
+	PID     int    `long:"pid" description:"scan a specific process by PID (0 = all accessible processes)"`
+	Process string `long:"process" description:"scan processes matching name substring"`
+	Mem     bool   `long:"mem" description:"scan process memory regions"`
+	MemAll  bool   `long:"mem-all" description:"scan ALL readable memory regions (default: writable/anonymous only)"`
+	Env     bool   `long:"env" description:"scan process environment variables"`
+	Cmdline bool   `long:"cmdline" description:"scan process command-line arguments"`
+	Fd      bool   `long:"fd" description:"scan process open file descriptors"`
+	Conn    bool   `long:"conn" description:"scan process network connections"`
+	Pipe    bool   `long:"pipe" description:"scan process named pipes"`
 }
 
 type TemplateOptions struct {

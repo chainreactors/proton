@@ -54,7 +54,7 @@ func New(cfg *Config) (*Runner, error) {
 	}
 	cfg.Targets = targets
 
-	if len(targets) == 0 && cfg.PID == 0 && cfg.Listen == "" {
+	if len(targets) == 0 && !cfg.ProcessScanEnabled() && cfg.Listen == "" {
 		return nil, fmt.Errorf("target (-i), --auto, --pid, or --listen is required, run 'found --help' for usage")
 	}
 
@@ -269,23 +269,29 @@ func (r *Runner) Run() error {
 		}
 	}
 
-	if cfg.PID > 0 {
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Scanning process memory: PID %d", cfg.PID)
+	if cfg.ProcessScanEnabled() {
+		pids, err := resolveTargetPIDs(cfg)
+		if err != nil {
+			return fmt.Errorf("process enumeration: %v", err)
 		}
-		if len(sysRules) > 0 {
-			if err := scanProcessWithSysRules(sysRules, execOpts, cfg.PID, handleFinding); err != nil {
-				if len(cfg.Targets) == 0 {
-					return fmt.Errorf("memory scan failed: %v", err)
-				}
-				logs.Log.Warnf("memory scan: %v", err)
+		if !cfg.Quiet && outputFormat == "text" {
+			logs.Log.Infof("Scanning %d process(es)", len(pids))
+		}
+		sources := cfg.ProcessSources()
+		for _, pid := range pids {
+			if len(sources) > 0 {
+				scanProcessSources(scanner, execOpts, pid, sources, handleFinding, cfg.Quiet, outputFormat)
 			}
-		} else {
-			if err := scanProcess(scanner, cfg.PID, cfg.MemAll, handleFinding); err != nil {
-				if len(cfg.Targets) == 0 {
-					return fmt.Errorf("memory scan failed: %v", err)
+			if cfg.Mem || cfg.MemAll || (len(sources) == 0 && !cfg.Env && !cfg.Cmdline && !cfg.Fd && !cfg.Conn && !cfg.Pipe) {
+				if len(sysRules) > 0 {
+					if err := scanProcessWithSysRules(sysRules, execOpts, pid, handleFinding); err != nil {
+						logs.Log.Warnf("pid %d memory: %v", pid, err)
+					}
+				} else {
+					if err := scanProcess(scanner, pid, cfg.MemAll, handleFinding); err != nil {
+						logs.Log.Warnf("pid %d memory: %v", pid, err)
+					}
 				}
-				logs.Log.Warnf("memory scan: %v", err)
 			}
 		}
 	}
@@ -302,7 +308,7 @@ func (r *Runner) Run() error {
 		defer cancel()
 		if err := scanNetwork(ctx, scanner, netOpts, handleFinding); err != nil {
 			if !errors.Is(err, context.Canceled) {
-				if len(cfg.Targets) == 0 && cfg.PID == 0 {
+				if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() {
 					return fmt.Errorf("network capture failed: %v", err)
 				}
 				logs.Log.Warnf("network capture: %v", err)

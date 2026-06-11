@@ -4,11 +4,51 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/chainreactors/logs"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
 	"github.com/chainreactors/proton/sysinfo"
 )
+
+func resolveTargetPIDs(cfg *Config) ([]int, error) {
+	if cfg.PID > 0 {
+		return []int{cfg.PID}, nil
+	}
+	procs, err := sysinfo.ListProcesses()
+	if err != nil {
+		return nil, err
+	}
+	var pids []int
+	for _, p := range procs {
+		if sysinfo.MatchProcess(p.Name, cfg.Process) {
+			pids = append(pids, p.PID)
+		}
+	}
+	return pids, nil
+}
+
+func scanProcessSources(scanner *file.Scanner, execOpts *protocols.ExecuterOptions, pid int, sources []string, callback func(file.Finding), quiet bool, format string) {
+	for _, src := range sources {
+		data, err := sysinfo.ReadSource(pid, src)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		label := fmt.Sprintf("pid:%d:%s", pid, src)
+		if !quiet && format == "text" {
+			logs.Log.Debugf("scanning pid:%d source:%s (%d bytes)", pid, src, len(data))
+		}
+		for _, group := range scanner.Groups {
+			findings := scanner.ScanData(data, label, group)
+			if len(findings) > 0 {
+				atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
+				for _, f := range findings {
+					callback(f)
+				}
+			}
+		}
+	}
+}
 
 type sysRule struct {
 	ID       string

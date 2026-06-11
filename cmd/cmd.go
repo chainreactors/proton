@@ -21,7 +21,6 @@ func Run(opts *Options) error {
 	}
 
 	cfg := &runner.Config{
-		Targets:          nil,
 		Templates:        opts.Templates,
 		ExcludeTemplates: opts.ExcludeTemplates,
 		Categories:       opts.Categories,
@@ -43,11 +42,19 @@ func Run(opts *Options) error {
 
 		Auto:      opts.Auto,
 		Bin:       opts.Bin,
-		PID:       opts.PID,
-		MemAll:    opts.MemAll,
 		Listen:    opts.Listen,
 		BPFFilter: opts.BPFFilter,
 		Severity:  opts.Severity,
+
+		PID:     opts.PID,
+		Process: opts.Process,
+		Mem:     opts.Mem,
+		MemAll:  opts.MemAll,
+		Env:     opts.Env,
+		Cmdline: opts.Cmdline,
+		Fd:      opts.Fd,
+		Conn:    opts.Conn,
+		Pipe:    opts.Pipe,
 
 		TemplateDir: opts.TemplateDir,
 		Baseline:    opts.Baseline,
