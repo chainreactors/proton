@@ -289,6 +289,8 @@ func (request *Request) findMatchesWithBytes(data []byte, input, filePath string
 		if newOpResult != nil {
 			if opResult == nil {
 				opResult = newOpResult
+			} else {
+				mergeOpResult(opResult, newOpResult)
 			}
 			if newOpResult.Matched || newOpResult.Extracted {
 				if newOpResult.Extracts != nil {
@@ -391,8 +393,7 @@ func (request *Request) findMatchesWithReader(reader io.Reader, input, filePath 
 			if opResult == nil {
 				opResult = newOpResult
 			} else {
-				//todo
-				//opResult.Merge(newOpResult)
+				mergeOpResult(opResult, newOpResult)
 			}
 			if newOpResult.Matched || newOpResult.Extracted {
 				if newOpResult.Extracts != nil {
@@ -475,6 +476,28 @@ func (request *Request) buildEvent(input, filePath string, fileMatches []FileMat
 	//	}
 	//}
 	return event
+}
+
+func mergeOpResult(dst, src *operators.Result) {
+	if src.Matched {
+		dst.Matched = true
+	}
+	if src.Extracted {
+		dst.Extracted = true
+	}
+	for k, v := range src.Matches {
+		if dst.Matches == nil {
+			dst.Matches = make(map[string][]string)
+		}
+		dst.Matches[k] = append(dst.Matches[k], v...)
+	}
+	for k, v := range src.Extracts {
+		if dst.Extracts == nil {
+			dst.Extracts = make(map[string][]string)
+		}
+		dst.Extracts[k] = append(dst.Extracts[k], v...)
+	}
+	dst.OutputExtracts = append(dst.OutputExtracts, src.OutputExtracts...)
 }
 
 func dumpResponse(event *protocols.InternalWrappedEvent, requestOptions *protocols.ExecuterOptions, filematches []FileMatch, filePath string) {

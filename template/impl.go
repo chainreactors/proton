@@ -44,26 +44,29 @@ func (t *Template) Compile(options *protocols.ExecuterOptions) error {
 }
 
 func (t *Template) Execute(input string, payload map[string]interface{}) (*operators.Result, error) {
-	if t.scanner == nil {
+	if len(t.RequestsFile) == 0 {
 		return nil, errors.New("template not compiled or has no file requests")
 	}
 
+	scanCtx := protocols.NewScanContext(input, payload)
 	var merged *operators.Result
 
-	for _, group := range t.scanner.Groups {
-		contents := t.scanner.ReadFile(input, group)
-		for _, c := range contents {
-			findings := t.scanner.ScanData(c.Data, c.Label, group)
-			for _, f := range findings {
-				if f.Result == nil {
-					continue
-				}
-				if merged == nil {
-					merged = f.Result
-				} else {
-					mergeResult(merged, f.Result)
-				}
+	for _, req := range t.RequestsFile {
+		err := req.ExecuteWithResults(scanCtx, nil, nil, func(event *protocols.InternalWrappedEvent) {
+			if event.OperatorsResult == nil {
+				return
 			}
+			if !event.OperatorsResult.Matched && !event.OperatorsResult.Extracted {
+				return
+			}
+			if merged == nil {
+				merged = event.OperatorsResult
+			} else {
+				mergeResult(merged, event.OperatorsResult)
+			}
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
