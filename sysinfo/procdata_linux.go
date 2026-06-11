@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package sysinfo
 
@@ -59,8 +58,8 @@ func ReadProcessConns(pid int) ([]byte, error) {
 			if len(fields) < 4 {
 				continue
 			}
-			local := ParseHexAddr(fields[1])
-			remote := ParseHexAddr(fields[2])
+			local := parseHexAddr(fields[1])
+			remote := parseHexAddr(fields[2])
 			if remote == "" || remote == "0.0.0.0:0" || remote == "[::]:0" {
 				continue
 			}
@@ -70,7 +69,7 @@ func ReadProcessConns(pid int) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
-func ParseHexAddr(s string) string {
+func parseHexAddr(s string) string {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
 		return s

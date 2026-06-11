@@ -9,5 +9,5 @@ import (
 
 // OpenCapture returns an error on unsupported platforms.
 func OpenCapture(iface string) (CaptureHandle, error) {
-	return nil, fmt.Errorf("network capture is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)
+	return nil, fmt.Errorf("%s not supported on %s", "network capture", runtime.GOOS)
 }

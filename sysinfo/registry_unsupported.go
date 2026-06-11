@@ -12,5 +12,5 @@ func WalkRegistry(opts RegistryWalkOptions, cb func(RegistryValue) error) error 
 }
 
 func unsupportedRegistryError() error {
-	return fmt.Errorf("registry scanning is not supported on %s", runtime.GOOS)
+	return fmt.Errorf("%s not supported on %s", "registry scanning", runtime.GOOS)
 }

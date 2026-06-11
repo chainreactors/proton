@@ -122,7 +122,7 @@ func TestParseMapsLine(t *testing.T) {
 	}
 }
 
-func TestParseHexAddr(t *testing.T) {
+func TestParseHexAddrInternal(t *testing.T) {
 	tests := []struct {
 		input  string
 		expect string
@@ -132,9 +132,9 @@ func TestParseHexAddr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := ParseHexAddr(tt.input)
+			got := parseHexAddr(tt.input)
 			if got != tt.expect {
-				t.Errorf("ParseHexAddr(%q) = %q, want %q", tt.input, got, tt.expect)
+				t.Errorf("parseHexAddr(%q) = %q, want %q", tt.input, got, tt.expect)
 			}
 		})
 	}

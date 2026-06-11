@@ -109,18 +109,3 @@ func TestScanProcessMultiSource(t *testing.T) {
 	assert.True(t, sources["env"], "should have env findings")
 }
 
-func TestParseHexAddr(t *testing.T) {
-	tests := []struct {
-		input  string
-		expect string
-	}{
-		{"0100007F:0050", "127.0.0.1:80"},
-		{"00000000:0000", "0.0.0.0:0"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := sysinfo.ParseHexAddr(tt.input)
-			assert.Equal(t, tt.expect, got)
-		})
-	}
-}

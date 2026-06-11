@@ -8,5 +8,5 @@ import (
 )
 
 func listProcesses() ([]ProcessInfo, error) {
-	return nil, fmt.Errorf("process enumeration not supported on %s", runtime.GOOS)
+	return nil, fmt.Errorf("%s not supported on %s", "process enumeration", runtime.GOOS)
 }

@@ -6,9 +6,3 @@ type CaptureHandle interface {
 	Close() error
 	HasEthernetHeader() bool
 }
-
-// NetworkOpts holds configuration for network capture.
-type NetworkOpts struct {
-	Interface string
-	BPFFilter string
-}

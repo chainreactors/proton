@@ -12,19 +12,6 @@ const (
 	SourceRegistry = "registry"
 )
 
-type MemoryRegion struct {
-	BaseAddr   uint64
-	Size       uint64
-	Perms      string
-	MappedFile string
-}
-
-type MemoryReader interface {
-	Regions() ([]MemoryRegion, error)
-	ReadAt(buf []byte, addr uint64) (int, error)
-	Close() error
-}
-
 func ReadSource(pid int, source string) ([]byte, error) {
 	switch source {
 	case SourceEnv:

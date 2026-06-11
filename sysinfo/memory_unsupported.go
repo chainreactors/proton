@@ -8,5 +8,5 @@ import (
 )
 
 func NewMemoryReader(pid int) (MemoryReader, error) {
-	return nil, fmt.Errorf("process memory scanning is not supported on %s/%s", runtime.GOOS, runtime.GOARCH)
+	return nil, fmt.Errorf("%s not supported on %s", "memory scanning", runtime.GOOS)
 }

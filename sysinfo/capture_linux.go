@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 package sysinfo
 
@@ -7,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -79,13 +77,4 @@ func isTimeout(err error) bool {
 		return true
 	}
 	return false
-}
-
-// setReadDeadline sets the read timeout on the socket.
-func (c *linuxCapture) setReadDeadline(d time.Duration) {
-	tv := unix.Timeval{Sec: int64(d.Seconds())}
-	if tv.Sec == 0 {
-		tv.Usec = int64(d.Microseconds())
-	}
-	unix.SetsockoptTimeval(c.fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 }
