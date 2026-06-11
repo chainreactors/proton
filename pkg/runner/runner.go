@@ -122,28 +122,28 @@ func New(cfg *Config) (*Runner, error) {
 }
 
 func (r *Runner) Run() error {
-	r.initRunState()
+	r.Init()
 
-	if err := r.printBanner(); err != nil {
+	if err := r.PrintBanner(); err != nil {
 		return err
 	}
 
 	stopProgress := r.startProgressIfNeeded()
 
-	r.scanProcesses()
-	r.scanRegistryAll()
-	r.scanKeyring()
-	r.scanGitHistory()
-	r.scanFiles()
-	r.runMonitors()
+	r.ScanProcesses()
+	r.ScanRegistry()
+	r.ScanKeyring()
+	r.ScanGitHistory()
+	r.ScanFiles()
+	r.RunMonitors()
 
 	stopProgress()
-	return r.finalize()
+	return r.Finalize()
 }
 
 // --- init ---
 
-func (r *Runner) initRunState() {
+func (r *Runner) Init() {
 	cfg := r.Config
 
 	r.outputFormat = cfg.Output
@@ -202,7 +202,7 @@ func (r *Runner) buildSysRules() {
 
 // --- banner ---
 
-func (r *Runner) printBanner() error {
+func (r *Runner) PrintBanner() error {
 	cfg := r.Config
 
 	if !cfg.Quiet && r.outputFormat == "text" {
@@ -239,7 +239,7 @@ func (r *Runner) printBanner() error {
 
 // --- handleFinding ---
 
-func (r *Runner) handleFinding(uf file.Finding) {
+func (r *Runner) HandleFinding(uf file.Finding) {
 	cfg := r.Config
 
 	f := Finding{
@@ -306,7 +306,7 @@ func (r *Runner) handleFinding(uf file.Finding) {
 
 // --- scan phases ---
 
-func (r *Runner) scanProcesses() {
+func (r *Runner) ScanProcesses() {
 	cfg := r.Config
 	if !cfg.ProcessScanEnabled() {
 		return
@@ -322,15 +322,15 @@ func (r *Runner) scanProcesses() {
 	sources := cfg.ProcessSources()
 	for _, pid := range pids {
 		if len(sources) > 0 {
-			scanProcessSources(r.Scanner, r.execOpts, pid, sources, r.handleFinding, cfg.Quiet, r.outputFormat)
+			scanProcessSources(r.Scanner, r.execOpts, pid, sources, r.HandleFinding, cfg.Quiet, r.outputFormat)
 		}
 		if cfg.Mem || cfg.MemAll || (len(sources) == 0 && !cfg.Env && !cfg.Cmdline && !cfg.Fd && !cfg.Conn && !cfg.Pipe) {
 			if len(r.sysRules) > 0 {
-				if err := scanProcessWithSysRules(r.sysRules, r.execOpts, pid, r.handleFinding); err != nil {
+				if err := scanProcessWithSysRules(r.sysRules, r.execOpts, pid, r.HandleFinding); err != nil {
 					logs.Log.Warnf("pid %d memory: %v", pid, err)
 				}
 			} else {
-				if err := scanProcess(r.Scanner, pid, cfg.MemAll, r.handleFinding); err != nil {
+				if err := scanProcess(r.Scanner, pid, cfg.MemAll, r.HandleFinding); err != nil {
 					logs.Log.Warnf("pid %d memory: %v", pid, err)
 				}
 			}
@@ -338,7 +338,7 @@ func (r *Runner) scanProcesses() {
 	}
 }
 
-func (r *Runner) scanRegistryAll() {
+func (r *Runner) ScanRegistry() {
 	cfg := r.Config
 
 	if cfg.RegistryScanEnabled() {
@@ -347,28 +347,28 @@ func (r *Runner) scanRegistryAll() {
 		} else {
 			r.logf("Scanning Windows registry")
 		}
-		if err := scanRegistry(r.Scanner, defaultRegistryOptionsFromConfig(cfg), r.handleFinding); err != nil {
+		if err := scanRegistry(r.Scanner, defaultRegistryOptionsFromConfig(cfg), r.HandleFinding); err != nil {
 			logs.Log.Warnf("registry scan: %v", err)
 		}
 	}
 
 	if len(r.registryRules) > 0 {
 		r.logf("Scanning Windows registry with %d sys rule(s)", len(r.registryRules))
-		if err := scanRegistryWithSysRules(r.registryRules, r.execOpts, r.handleFinding); err != nil {
+		if err := scanRegistryWithSysRules(r.registryRules, r.execOpts, r.HandleFinding); err != nil {
 			logs.Log.Warnf("registry sys scan: %v", err)
 		}
 	}
 }
 
-func (r *Runner) scanKeyring() {
+func (r *Runner) ScanKeyring() {
 	if !r.Config.Keyring {
 		return
 	}
 	r.logf("Scanning kernel keyring")
-	scanKeyring(r.Scanner, r.handleFinding)
+	scanKeyring(r.Scanner, r.HandleFinding)
 }
 
-func (r *Runner) scanGitHistory() {
+func (r *Runner) ScanGitHistory() {
 	if !r.Config.Git {
 		return
 	}
@@ -377,16 +377,16 @@ func (r *Runner) scanGitHistory() {
 		targets = []string{"."}
 	}
 	r.logf("Scanning git history for deleted secrets")
-	scanGitHistory(r.Scanner, targets, r.handleFinding)
+	scanGitHistory(r.Scanner, targets, r.HandleFinding)
 }
 
-func (r *Runner) scanFiles() {
+func (r *Runner) ScanFiles() {
 	for _, target := range r.Config.Targets {
-		walkAndScan(r.Scanner, target, r.handleFinding)
+		walkAndScan(r.Scanner, target, r.HandleFinding)
 	}
 }
 
-func (r *Runner) runMonitors() {
+func (r *Runner) RunMonitors() {
 	cfg := r.Config
 	if cfg.Listen == "" && !cfg.Clipboard && !cfg.Keylog {
 		return
@@ -396,7 +396,7 @@ func (r *Runner) runMonitors() {
 	defer cancel()
 
 	onData := func(data []byte, label string) {
-		scanData(r.Scanner, data, label, r.handleFinding)
+		scanData(r.Scanner, data, label, r.HandleFinding)
 	}
 
 	var wg sync.WaitGroup
@@ -409,7 +409,7 @@ func (r *Runner) runMonitors() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := scanNetwork(ctx, r.Scanner, networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}, r.handleFinding); err != nil && !errors.Is(err, context.Canceled) {
+			if err := scanNetwork(ctx, r.Scanner, networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}, r.HandleFinding); err != nil && !errors.Is(err, context.Canceled) {
 				logs.Log.Warnf("network capture: %v", err)
 			}
 		}()
@@ -442,7 +442,7 @@ func (r *Runner) runMonitors() {
 
 // --- finalize ---
 
-func (r *Runner) finalize() error {
+func (r *Runner) Finalize() error {
 	cfg := r.Config
 
 	if !cfg.Quiet && r.outputFormat == "text" {

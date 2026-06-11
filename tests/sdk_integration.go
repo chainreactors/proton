@@ -170,7 +170,26 @@ func main() {
 	}
 
 	// ============================================================
-	fmt.Printf("\n=== Results: %d passed, %d failed ===\n", 15-errors, errors)
+	fmt.Println("\n=== 9. Runner composable API (individual scan phases) ===")
+	// ============================================================
+	cfg2 := &runner.Config{
+		Input:       dir,
+		Expressions: []string{`SECRET_[A-Z_]+=\S+`},
+		Output:      "json",
+		Quiet:       true,
+	}
+	r2, err := runner.New(cfg2)
+	check("Runner.New (composable) no error", err == nil, fmt.Sprintf("%v", err))
+	if err == nil {
+		r2.Init()
+		r2.PrintBanner()
+		r2.ScanFiles()
+		err = r2.Finalize()
+		check("Runner composable Finalize no error", err == nil, fmt.Sprintf("%v", err))
+	}
+
+	// ============================================================
+	fmt.Printf("\n=== Results: %d passed, %d failed ===\n", 17-errors, errors)
 	if errors > 0 {
 		os.Exit(1)
 	}
