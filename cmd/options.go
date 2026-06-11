@@ -73,11 +73,14 @@ type ScopeOptions struct {
 	Docker   bool `long:"docker" description:"scan Docker runtime: /var/lib/docker image/container layers"`
 	Logs     bool `long:"logs" description:"scan logs and web apps: /var/log, /var/www, /srv, /opt"`
 	History  bool `long:"history" description:"scan shell/tool history files"`
-	Browser  bool `long:"browser" description:"scan browser profiles: Chrome, Firefox, Edge saved credentials/cookies"`
 	Tmpfs    bool `long:"tmpfs" description:"scan volatile: /tmp, /dev/shm, /run/secrets, /run/user"`
 	Git      bool `long:"git" description:"scan git history for deleted secrets"`
-	Coredump bool `long:"coredump" description:"scan crash dumps: /var/crash, /var/lib/systemd/coredump"`
-	Keyring  bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
+	Coredump  bool `long:"coredump" description:"scan crash dumps: /var/crash, /var/lib/systemd/coredump"`
+	Keyring   bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
+
+	// Live monitoring
+	Clipboard bool `long:"clipboard" description:"monitor clipboard for secrets (continuous)"`
+	Keylog    bool `long:"keylog" description:"monitor keystrokes for secrets (continuous, requires root)"`
 }
 
 type TemplateOptions struct {

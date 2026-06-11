@@ -90,69 +90,6 @@ func ConfigPaths() []string {
 	return paths
 }
 
-// BrowserPaths returns browser profile directories containing stored credentials,
-// cookies, and session tokens.
-func BrowserPaths() []string {
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		return nil
-	}
-	var paths []string
-
-	switch runtime.GOOS {
-	case "linux":
-		candidates := []string{
-			filepath.Join(home, ".config", "google-chrome"),
-			filepath.Join(home, ".config", "chromium"),
-			filepath.Join(home, ".mozilla", "firefox"),
-			filepath.Join(home, ".config", "microsoft-edge"),
-			filepath.Join(home, ".config", "BraveSoftware"),
-			filepath.Join(home, ".config", "opera"),
-		}
-		for _, p := range candidates {
-			if dirExists(p) {
-				paths = append(paths, p)
-			}
-		}
-	case "darwin":
-		candidates := []string{
-			filepath.Join(home, "Library", "Application Support", "Google", "Chrome"),
-			filepath.Join(home, "Library", "Application Support", "Chromium"),
-			filepath.Join(home, "Library", "Application Support", "Firefox"),
-			filepath.Join(home, "Library", "Application Support", "Microsoft Edge"),
-			filepath.Join(home, "Library", "Application Support", "BraveSoftware"),
-			filepath.Join(home, "Library", "Cookies"),
-		}
-		for _, p := range candidates {
-			if dirExists(p) {
-				paths = append(paths, p)
-			}
-		}
-	case "windows":
-		localAppdata := os.Getenv("LOCALAPPDATA")
-		appdata := os.Getenv("APPDATA")
-		if localAppdata != "" {
-			candidates := []string{
-				filepath.Join(localAppdata, "Google", "Chrome", "User Data"),
-				filepath.Join(localAppdata, "Microsoft", "Edge", "User Data"),
-				filepath.Join(localAppdata, "BraveSoftware", "Brave-Browser", "User Data"),
-			}
-			for _, p := range candidates {
-				if dirExists(p) {
-					paths = append(paths, p)
-				}
-			}
-		}
-		if appdata != "" {
-			if p := filepath.Join(appdata, "Mozilla", "Firefox", "Profiles"); dirExists(p) {
-				paths = append(paths, p)
-			}
-		}
-	}
-
-	return paths
-}
-
 // HomePaths returns all user home directories including Desktop/Documents/Downloads.
 func HomePaths() []string {
 	var paths []string

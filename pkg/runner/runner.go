@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -56,7 +57,7 @@ func New(cfg *Config) (*Runner, error) {
 	targets = append(targets, expandScopeTargets(cfg)...)
 	cfg.Targets = targets
 
-	hasScope := cfg.ProcessScanEnabled() || cfg.RegistryScanEnabled() || cfg.Keyring || cfg.Git || cfg.Listen != ""
+	hasScope := cfg.ProcessScanEnabled() || cfg.RegistryScanEnabled() || cfg.Keyring || cfg.Git || cfg.Clipboard || cfg.Keylog || cfg.Listen != ""
 
 	var tmpls []*template.Template
 	hasExplicitTemplates := len(cfg.Templates) > 0
@@ -333,24 +334,66 @@ func (r *Runner) Run() error {
 		}
 	}
 
-	if cfg.Listen != "" {
-		netOpts := networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}
-		if !cfg.Quiet && outputFormat == "text" {
-			logs.Log.Infof("Capturing traffic on interface: %s", cfg.Listen)
-			if cfg.BPFFilter != "" {
-				logs.Log.Infof("BPF filter: %s", cfg.BPFFilter)
-			}
-		}
+	if cfg.Listen != "" || cfg.Clipboard || cfg.Keylog {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		if err := scanNetwork(ctx, scanner, netOpts, handleFinding); err != nil {
-			if !errors.Is(err, context.Canceled) {
-				if len(cfg.Targets) == 0 && !cfg.ProcessScanEnabled() {
-					return fmt.Errorf("network capture failed: %v", err)
+
+		monitorOnData := func(data []byte, label string) {
+			for _, group := range scanner.Groups {
+				findings := scanner.ScanData(data, label, group)
+				for _, f := range findings {
+					atomic.AddInt64(&scanner.Stats.Findings, int64(len(findings)))
+					handleFinding(f)
 				}
-				logs.Log.Warnf("network capture: %v", err)
 			}
 		}
+
+		var monitorWg sync.WaitGroup
+
+		if cfg.Listen != "" {
+			netOpts := networkOpts{Interface: cfg.Listen, BPFFilter: cfg.BPFFilter}
+			if !cfg.Quiet && outputFormat == "text" {
+				logs.Log.Infof("Capturing traffic on interface: %s", cfg.Listen)
+				if cfg.BPFFilter != "" {
+					logs.Log.Infof("BPF filter: %s", cfg.BPFFilter)
+				}
+			}
+			monitorWg.Add(1)
+			go func() {
+				defer monitorWg.Done()
+				if err := scanNetwork(ctx, scanner, netOpts, handleFinding); err != nil && !errors.Is(err, context.Canceled) {
+					logs.Log.Warnf("network capture: %v", err)
+				}
+			}()
+		}
+
+		if cfg.Clipboard {
+			if !cfg.Quiet && outputFormat == "text" {
+				logs.Log.Infof("Monitoring clipboard")
+			}
+			monitorWg.Add(1)
+			go func() {
+				defer monitorWg.Done()
+				if err := sysinfo.WatchClipboard(ctx, monitorOnData); err != nil && !errors.Is(err, context.Canceled) {
+					logs.Log.Warnf("clipboard: %v", err)
+				}
+			}()
+		}
+
+		if cfg.Keylog {
+			if !cfg.Quiet && outputFormat == "text" {
+				logs.Log.Infof("Monitoring keystrokes")
+			}
+			monitorWg.Add(1)
+			go func() {
+				defer monitorWg.Done()
+				if err := sysinfo.WatchKeystrokes(ctx, monitorOnData); err != nil && !errors.Is(err, context.Canceled) {
+					logs.Log.Warnf("keylog: %v", err)
+				}
+			}()
+		}
+
+		monitorWg.Wait()
 	}
 
 	if cfg.Keyring {

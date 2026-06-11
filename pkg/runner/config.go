@@ -47,11 +47,12 @@ type Config struct {
 	Docker   bool
 	Logs     bool
 	History  bool
-	Browser  bool
 	Tmpfs    bool
 	Git      bool
-	Coredump bool
-	Keyring  bool
+	Coredump  bool
+	Keyring   bool
+	Clipboard bool
+	Keylog    bool
 
 	Input       string
 	TemplateDir string
