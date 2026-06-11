@@ -381,7 +381,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 		go func() {
 			defer wg.Done()
 			for job := range jobCh {
-				findings := s.processFile(job.path, job.group)
+				findings := s.ProcessFile(job.path, job.group)
 				if len(findings) > 0 {
 					atomic.AddInt64(&s.Stats.Findings, int64(len(findings)))
 					cbMu.Lock()
@@ -413,7 +413,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 			return nil
 		}
 		for _, group := range s.Groups {
-			if !group.matchesFile(path, ext) {
+			if !group.MatchesFile(path, ext) {
 				continue
 			}
 			jobCh <- fileJob{path: path, group: group}
@@ -425,7 +425,7 @@ func (s *Scanner) Scan(target string, callback func(Finding)) error {
 	return walkErr
 }
 
-func (g *scanGroup) matchesFile(path, ext string) bool {
+func (g *scanGroup) MatchesFile(path, ext string) bool {
 	if _, ok := archiveDenyExts[ext]; ok {
 		return true
 	}
@@ -447,7 +447,8 @@ func (g *scanGroup) matchesFile(path, ext string) bool {
 
 const unifiedMmapMinSize = 32 * 1024
 
-func (s *Scanner) processFile(path string, group *scanGroup) []Finding {
+// ProcessFile reads a single file (or archive) and returns findings for the given group.
+func (s *Scanner) ProcessFile(path string, group *scanGroup) []Finding {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil

@@ -247,6 +247,18 @@ var defaultSkipDirs = map[string]struct{}{
 // New code should use the categorized maps above.
 var defaultDenylist []string
 
+// ShouldSkipDir returns true if the directory name should be pruned during walk.
+func ShouldSkipDir(name string) bool {
+	_, ok := defaultSkipDirs[name]
+	return ok
+}
+
+// ShouldDenyExt returns true if the file extension should always be skipped.
+func ShouldDenyExt(ext string) bool {
+	_, ok := alwaysDenyExts[ext]
+	return ok
+}
+
 // defaultArchiveDenyList is kept for backward compatibility with existing callers.
 var defaultArchiveDenyList []string
 

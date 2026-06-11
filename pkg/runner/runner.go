@@ -382,7 +382,7 @@ func (r *Runner) scanGitHistory() {
 
 func (r *Runner) scanFiles() {
 	for _, target := range r.Config.Targets {
-		r.Scanner.Scan(target, r.handleFinding)
+		walkAndScan(r.Scanner, target, r.handleFinding)
 	}
 }
 
