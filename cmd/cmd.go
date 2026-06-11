@@ -56,9 +56,12 @@ func Run(opts *Options) error {
 		Conn:    opts.Conn,
 		Pipe:    opts.Pipe,
 
-		Shm:     opts.Shm,
-		Tmpfs:   opts.Tmpfs,
+		Config:  opts.Config,
+		Docker:  opts.Docker,
+		Desktop: opts.Desktop,
+		Logs:    opts.Logs,
 		History: opts.History,
+		Tmpfs:   opts.Tmpfs,
 		Keyring: opts.Keyring,
 
 		TemplateDir: opts.TemplateDir,

@@ -49,9 +49,6 @@ type ScanOptions struct {
 	FailOn      string `long:"fail-on" description:"exit with code 1 if findings match severity (e.g. high,critical)"`
 }
 
-// ScopeOptions controls which data sources to scan.
-// Process-level sources require --pid or --process to select target processes.
-// System-level sources (--shm, --tmpfs, --history, --keyring) scan well-known paths.
 type ScopeOptions struct {
 	// Process targeting
 	PID     int    `long:"pid" description:"scan a specific process by PID (0 = all accessible)"`
@@ -66,10 +63,13 @@ type ScopeOptions struct {
 	Conn    bool `long:"conn" description:"scan process network connections"`
 	Pipe    bool `long:"pipe" description:"scan process named pipes"`
 
-	// System-level sources
-	Shm     bool `long:"shm" description:"scan shared memory (/dev/shm)"`
-	Tmpfs   bool `long:"tmpfs" description:"scan tmpfs paths (/tmp, /run/secrets, /run/user)"`
-	History bool `long:"history" description:"scan shell history files (~/.bash_history, etc)"`
+	// Filesystem scope
+	Config  bool `long:"config" description:"scan all config: dotfiles, /etc, ~/.config, ~/Library, %APPDATA%"`
+	Docker  bool `long:"docker" description:"scan Docker/K8s: ~/.docker, ~/.kube, /var/run/secrets/kubernetes.io"`
+	Desktop bool `long:"desktop" description:"scan user Desktop, Documents, Downloads"`
+	Logs    bool `long:"logs" description:"scan logs and web apps: /var/log, /var/www, /srv, /opt"`
+	History bool `long:"history" description:"scan shell/tool history files"`
+	Tmpfs   bool `long:"tmpfs" description:"scan volatile paths: /tmp, /dev/shm, /run/secrets, /run/user"`
 	Keyring bool `long:"keyring" description:"scan kernel keyring (Linux only)"`
 }
 

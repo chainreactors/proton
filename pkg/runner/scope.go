@@ -8,15 +8,38 @@ import (
 	"github.com/chainreactors/proton/sysinfo"
 )
 
-// expandScopeTargets resolves --shm, --tmpfs, --history flags into file paths.
 func expandScopeTargets(cfg *Config) []string {
 	var paths []string
 
-	if cfg.Shm {
-		p := sysinfo.ShmPaths()
+	if cfg.Config {
+		p := sysinfo.ConfigPaths()
 		paths = append(paths, p...)
 		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: shm → %v", p)
+			logs.Log.Debugf("scope: config → %d paths", len(p))
+		}
+	}
+
+	if cfg.Docker {
+		p := sysinfo.DockerKubePaths()
+		paths = append(paths, p...)
+		if !cfg.Quiet && len(p) > 0 {
+			logs.Log.Debugf("scope: docker/kube → %d paths", len(p))
+		}
+	}
+
+	if cfg.Desktop {
+		p := sysinfo.DesktopPaths()
+		paths = append(paths, p...)
+		if !cfg.Quiet && len(p) > 0 {
+			logs.Log.Debugf("scope: desktop → %d paths", len(p))
+		}
+	}
+
+	if cfg.Logs {
+		p := sysinfo.LogsWebappPaths()
+		paths = append(paths, p...)
+		if !cfg.Quiet && len(p) > 0 {
+			logs.Log.Debugf("scope: logs/webapp → %d paths", len(p))
 		}
 	}
 
@@ -24,7 +47,7 @@ func expandScopeTargets(cfg *Config) []string {
 		p := sysinfo.TmpfsPaths()
 		paths = append(paths, p...)
 		if !cfg.Quiet && len(p) > 0 {
-			logs.Log.Debugf("scope: tmpfs → %v", p)
+			logs.Log.Debugf("scope: tmpfs → %d paths", len(p))
 		}
 	}
 
@@ -39,7 +62,6 @@ func expandScopeTargets(cfg *Config) []string {
 	return paths
 }
 
-// scanKeyring reads kernel keyring and scans with the scanner.
 func scanKeyring(scanner *file.Scanner, callback func(file.Finding)) {
 	data, err := sysinfo.ReadKeyring()
 	if err != nil || len(data) == 0 {

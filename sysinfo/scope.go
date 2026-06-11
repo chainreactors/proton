@@ -7,22 +7,137 @@ import (
 	"strconv"
 )
 
-// ShmPaths returns shared memory paths to scan.
-func ShmPaths() []string {
-	switch runtime.GOOS {
-	case "linux":
-		if info, err := os.Stat("/dev/shm"); err == nil && info.IsDir() {
-			return []string{"/dev/shm"}
+// ConfigPaths returns config/dotfile paths: ~/.*, /etc, ~/.config, ~/Library, %APPDATA%.
+func ConfigPaths() []string {
+	home, _ := os.UserHomeDir()
+	var paths []string
+
+	if home != "" {
+		dotfiles := []string{
+			".ssh", ".aws", ".gnupg", ".config",
+			".npmrc", ".netrc", ".pgpass", ".my.cnf",
+			".gitconfig", ".git-credentials",
+			".env", ".env.local",
+		}
+		for _, d := range dotfiles {
+			p := filepath.Join(home, d)
+			if _, err := os.Stat(p); err == nil {
+				paths = append(paths, p)
+			}
 		}
 	}
-	return nil
+
+	switch runtime.GOOS {
+	case "linux":
+		for _, p := range []string{"/etc"} {
+			if info, err := os.Stat(p); err == nil && info.IsDir() {
+				paths = append(paths, p)
+			}
+		}
+	case "darwin":
+		for _, p := range []string{"/etc", "/usr/local/etc"} {
+			if info, err := os.Stat(p); err == nil && info.IsDir() {
+				paths = append(paths, p)
+			}
+		}
+		if home != "" {
+			if p := filepath.Join(home, "Library"); dirExists(p) {
+				paths = append(paths, p)
+			}
+		}
+	case "windows":
+		if appdata := os.Getenv("APPDATA"); appdata != "" && dirExists(appdata) {
+			paths = append(paths, appdata)
+		}
+		if localAppdata := os.Getenv("LOCALAPPDATA"); localAppdata != "" && dirExists(localAppdata) {
+			paths = append(paths, localAppdata)
+		}
+	}
+
+	return paths
 }
 
-// TmpfsPaths returns tmpfs/ramfs paths likely to contain sensitive data.
+// DockerKubePaths returns Docker and Kubernetes config/secret paths.
+func DockerKubePaths() []string {
+	home, _ := os.UserHomeDir()
+	var paths []string
+
+	if home != "" {
+		for _, d := range []string{".docker", ".kube"} {
+			p := filepath.Join(home, d)
+			if dirExists(p) {
+				paths = append(paths, p)
+			}
+		}
+	}
+
+	k8sSecrets := []string{
+		"/var/run/secrets/kubernetes.io",
+		"/run/secrets",
+	}
+	for _, p := range k8sSecrets {
+		if dirExists(p) {
+			paths = append(paths, p)
+		}
+	}
+
+	if runtime.GOOS == "linux" {
+		if dirExists("/var/lib/docker") {
+			paths = append(paths, "/var/lib/docker")
+		}
+	}
+
+	return paths
+}
+
+// DesktopPaths returns user Desktop, Documents, Downloads directories.
+func DesktopPaths() []string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return nil
+	}
+
+	var paths []string
+	for _, d := range []string{"Desktop", "Documents", "Downloads"} {
+		p := filepath.Join(home, d)
+		if dirExists(p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// LogsWebappPaths returns log and web application paths.
+func LogsWebappPaths() []string {
+	var paths []string
+
+	candidates := []string{
+		"/var/log",
+		"/var/www",
+		"/srv",
+		"/opt",
+	}
+
+	if runtime.GOOS == "windows" {
+		candidates = []string{
+			`C:\inetpub`,
+		}
+	}
+
+	for _, p := range candidates {
+		if dirExists(p) {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// TmpfsPaths returns tmpfs/ramfs/shm paths.
 func TmpfsPaths() []string {
 	var paths []string
 	candidates := []string{
 		"/tmp",
+		"/dev/shm",
 		"/run/secrets",
 		"/var/run/secrets",
 	}
@@ -36,7 +151,7 @@ func TmpfsPaths() []string {
 	}
 
 	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && info.IsDir() {
+		if dirExists(p) {
 			paths = append(paths, p)
 		}
 	}
@@ -84,4 +199,9 @@ func HistoryFiles() []string {
 	}
 
 	return files
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
 }

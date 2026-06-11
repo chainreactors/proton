@@ -41,10 +41,13 @@ type Config struct {
 	Conn    bool
 	Pipe    bool
 
-	// System-level sources
-	Shm     bool
-	Tmpfs   bool
+	// Filesystem scope
+	Config  bool
+	Docker  bool
+	Desktop bool
+	Logs    bool
 	History bool
+	Tmpfs   bool
 	Keyring bool
 
 	Input       string
@@ -60,7 +63,6 @@ func (c *Config) ProcessScanEnabled() bool {
 }
 
 // ProcessSources returns the list of sysinfo source names to scan.
-// If no specific source flag is set but PID/Process is given, defaults to all sources.
 func (c *Config) ProcessSources() []string {
 	var sources []string
 	if c.Env {
@@ -85,9 +87,4 @@ func (c *Config) ProcessSources() []string {
 		}
 	}
 	return sources
-}
-
-// ScopeScanEnabled returns true if any system-level scope flag is set.
-func (c *Config) ScopeScanEnabled() bool {
-	return c.Shm || c.Tmpfs || c.History || c.Keyring
 }
