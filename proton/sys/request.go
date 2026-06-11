@@ -6,15 +6,7 @@ import (
 
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
-)
-
-const (
-	SourceMemory  = "memory"
-	SourceEnv     = "env"
-	SourceCmdline = "cmdline"
-	SourceFD      = "fd"
-	SourceConn    = "conn"
-	SourcePipe    = "pipe"
+	"github.com/chainreactors/proton/proton/sysinfo"
 )
 
 type Request struct {
@@ -38,14 +30,14 @@ func (r *Request) Compile(options *protocols.ExecuterOptions) error {
 	}
 
 	if r.Source == "" {
-		r.Source = SourceMemory
+		r.Source = sysinfo.SourceMemory
 	}
 
 	r.regions = make(map[string]struct{})
 	for _, region := range r.Regions {
 		r.regions[strings.ToLower(region)] = struct{}{}
 	}
-	if r.Source == SourceMemory && len(r.regions) == 0 {
+	if r.Source == sysinfo.SourceMemory && len(r.regions) == 0 {
 		r.regions["heap"] = struct{}{}
 		r.regions["stack"] = struct{}{}
 		r.regions["anonymous"] = struct{}{}

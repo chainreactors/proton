@@ -12,46 +12,44 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
+	"github.com/chainreactors/proton/proton/sysinfo"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReadProcessEnv(t *testing.T) {
-	data, err := readProcessEnv(os.Getpid())
+	data, err := sysinfo.ReadProcessEnv(os.Getpid())
 	assert.NoError(t, err)
 	assert.True(t, len(data) > 0)
-	// /proc/self/environ contains env from exec time; check a known var
 	assert.Contains(t, string(data), "PATH=")
 }
 
 func TestReadProcessCmdline(t *testing.T) {
-	data, err := readProcessCmdline(os.Getpid())
+	data, err := sysinfo.ReadProcessCmdline(os.Getpid())
 	assert.NoError(t, err)
 	assert.True(t, len(data) > 0)
 }
 
 func TestReadProcessFDs(t *testing.T) {
-	data, err := readProcessFDs(os.Getpid())
+	data, err := sysinfo.ReadProcessFDs(os.Getpid())
 	assert.NoError(t, err)
-	// test process should have at least stdin/stdout/stderr
 	assert.True(t, len(data) > 0)
 }
 
 func TestReadProcessConns(t *testing.T) {
-	data, err := readProcessConns(os.Getpid())
+	data, err := sysinfo.ReadProcessConns(os.Getpid())
 	assert.NoError(t, err)
-	// may be empty if no connections, that's fine
 	_ = data
 }
 
 func TestReadProcessPipes(t *testing.T) {
-	data, err := readProcessPipes(os.Getpid())
+	data, err := sysinfo.ReadProcessPipes(os.Getpid())
 	assert.NoError(t, err)
 	_ = data
 }
 
 func TestScanProcessEnvWithSysRules(t *testing.T) {
 	execOpts := &protocols.ExecuterOptions{Options: &protocols.Options{TextOnly: false}}
-	sysReq := &sys.Request{Source: sys.SourceEnv}
+	sysReq := &sys.Request{Source: sysinfo.SourceEnv}
 	sysReq.Extractors = []*operators.Extractor{
 		{Type: "regex", Regex: []string{`PATH=\S+`}},
 	}
@@ -75,13 +73,13 @@ func TestScanProcessEnvWithSysRules(t *testing.T) {
 func TestScanProcessMultiSource(t *testing.T) {
 	execOpts := &protocols.ExecuterOptions{Options: &protocols.Options{TextOnly: false}}
 
-	envReq := &sys.Request{Source: sys.SourceEnv}
+	envReq := &sys.Request{Source: sysinfo.SourceEnv}
 	envReq.Extractors = []*operators.Extractor{
 		{Type: "regex", Regex: []string{`HOME=\S+`}},
 	}
 	envReq.Compile(execOpts)
 
-	fdReq := &sys.Request{Source: sys.SourceFD}
+	fdReq := &sys.Request{Source: sysinfo.SourceFD}
 	fdReq.Extractors = []*operators.Extractor{
 		{Type: "regex", Regex: []string{`/dev/\S+`}},
 	}
@@ -121,7 +119,7 @@ func TestParseHexAddr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := parseHexAddr(tt.input)
+			got := sysinfo.ParseHexAddr(tt.input)
 			assert.Equal(t, tt.expect, got)
 		})
 	}

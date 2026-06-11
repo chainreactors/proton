@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package cmd
+package sysinfo
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ type windowsMemReader struct {
 	pid    int
 }
 
-func newMemoryReader(pid int) (memoryReader, error) {
+func NewMemoryReader(pid int) (MemoryReader, error) {
 	h, err := windows.OpenProcess(processVMRead|processQueryInformation, false, uint32(pid))
 	if err != nil {
 		return nil, fmt.Errorf("OpenProcess(%d): %w", pid, err)
@@ -34,8 +34,8 @@ func newMemoryReader(pid int) (memoryReader, error) {
 	return &windowsMemReader{handle: h, pid: pid}, nil
 }
 
-func (r *windowsMemReader) Regions() ([]memoryRegion, error) {
-	var regions []memoryRegion
+func (r *windowsMemReader) Regions() ([]MemoryRegion, error) {
+	var regions []MemoryRegion
 	var addr uintptr
 
 	for {
@@ -46,7 +46,7 @@ func (r *windowsMemReader) Regions() ([]memoryRegion, error) {
 		}
 		if mbi.State == windows.MEM_COMMIT && isReadableProtect(mbi.Protect) {
 			mapped := getMappedFileName(r.handle, mbi.BaseAddress)
-			regions = append(regions, memoryRegion{
+			regions = append(regions, MemoryRegion{
 				BaseAddr:   uint64(mbi.BaseAddress),
 				Size:       uint64(mbi.RegionSize),
 				Perms:      protectToPerms(mbi.Protect),

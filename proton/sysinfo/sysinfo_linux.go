@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package cmd
+package sysinfo
 
 import (
 	"bytes"
@@ -13,16 +13,15 @@ import (
 	"strings"
 )
 
-func readProcessEnv(pid int) ([]byte, error) {
+func ReadProcessEnv(pid int) ([]byte, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
 	if err != nil {
 		return nil, err
 	}
-	// null-separated → newline-separated for line-based matching
 	return bytes.ReplaceAll(data, []byte{0}, []byte{'\n'}), nil
 }
 
-func readProcessCmdline(pid int) ([]byte, error) {
+func ReadProcessCmdline(pid int) ([]byte, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		return nil, err
@@ -30,7 +29,7 @@ func readProcessCmdline(pid int) ([]byte, error) {
 	return bytes.ReplaceAll(data, []byte{0}, []byte{' '}), nil
 }
 
-func readProcessFDs(pid int) ([]byte, error) {
+func ReadProcessFDs(pid int) ([]byte, error) {
 	fdDir := fmt.Sprintf("/proc/%d/fd", pid)
 	entries, err := os.ReadDir(fdDir)
 	if err != nil {
@@ -47,7 +46,7 @@ func readProcessFDs(pid int) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
-func readProcessConns(pid int) ([]byte, error) {
+func ReadProcessConns(pid int) ([]byte, error) {
 	var lines []string
 	for _, proto := range []string{"tcp", "tcp6", "udp", "udp6"} {
 		path := fmt.Sprintf("/proc/%d/net/%s", pid, proto)
@@ -60,8 +59,8 @@ func readProcessConns(pid int) ([]byte, error) {
 			if len(fields) < 4 {
 				continue
 			}
-			local := parseHexAddr(fields[1])
-			remote := parseHexAddr(fields[2])
+			local := ParseHexAddr(fields[1])
+			remote := ParseHexAddr(fields[2])
 			if remote == "" || remote == "0.0.0.0:0" || remote == "[::]:0" {
 				continue
 			}
@@ -71,7 +70,7 @@ func readProcessConns(pid int) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
-func parseHexAddr(s string) string {
+func ParseHexAddr(s string) string {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
 		return s
@@ -82,7 +81,6 @@ func parseHexAddr(s string) string {
 	port, _ := strconv.ParseUint(hexPort, 16, 16)
 
 	if len(hexIP) == 8 {
-		// IPv4: stored in little-endian hex
 		b := make([]byte, 4)
 		for i := 0; i < 4; i++ {
 			v, _ := strconv.ParseUint(hexIP[i*2:i*2+2], 16, 8)
@@ -93,7 +91,7 @@ func parseHexAddr(s string) string {
 	return fmt.Sprintf("%s:%d", hexIP, port)
 }
 
-func readProcessPipes(pid int) ([]byte, error) {
+func ReadProcessPipes(pid int) ([]byte, error) {
 	fdDir := fmt.Sprintf("/proc/%d/fd", pid)
 	entries, err := os.ReadDir(fdDir)
 	if err != nil {

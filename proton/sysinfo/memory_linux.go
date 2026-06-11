@@ -1,7 +1,7 @@
 //go:build linux
 // +build linux
 
-package cmd
+package sysinfo
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ type linuxMemReader struct {
 	memFile *os.File
 }
 
-func newMemoryReader(pid int) (memoryReader, error) {
+func NewMemoryReader(pid int) (MemoryReader, error) {
 	memPath := fmt.Sprintf("/proc/%d/mem", pid)
 	f, err := os.Open(memPath)
 	if err != nil {
@@ -25,7 +25,7 @@ func newMemoryReader(pid int) (memoryReader, error) {
 	return &linuxMemReader{pid: pid, memFile: f}, nil
 }
 
-func (r *linuxMemReader) Regions() ([]memoryRegion, error) {
+func (r *linuxMemReader) Regions() ([]MemoryRegion, error) {
 	mapsPath := fmt.Sprintf("/proc/%d/maps", r.pid)
 	f, err := os.Open(mapsPath)
 	if err != nil {
@@ -33,10 +33,10 @@ func (r *linuxMemReader) Regions() ([]memoryRegion, error) {
 	}
 	defer f.Close()
 
-	var regions []memoryRegion
+	var regions []MemoryRegion
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		region, ok := parseMapsLine(scanner.Text())
+		region, ok := ParseMapsLine(scanner.Text())
 		if ok {
 			regions = append(regions, region)
 		}
@@ -44,24 +44,24 @@ func (r *linuxMemReader) Regions() ([]memoryRegion, error) {
 	return regions, scanner.Err()
 }
 
-func parseMapsLine(line string) (memoryRegion, bool) {
+func ParseMapsLine(line string) (MemoryRegion, bool) {
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
-		return memoryRegion{}, false
+		return MemoryRegion{}, false
 	}
 
 	addrParts := strings.SplitN(fields[0], "-", 2)
 	if len(addrParts) != 2 {
-		return memoryRegion{}, false
+		return MemoryRegion{}, false
 	}
 
 	start, err := strconv.ParseUint(addrParts[0], 16, 64)
 	if err != nil {
-		return memoryRegion{}, false
+		return MemoryRegion{}, false
 	}
 	end, err := strconv.ParseUint(addrParts[1], 16, 64)
 	if err != nil {
-		return memoryRegion{}, false
+		return MemoryRegion{}, false
 	}
 
 	perms := fields[1]
@@ -70,7 +70,7 @@ func parseMapsLine(line string) (memoryRegion, bool) {
 		mappedFile = fields[5]
 	}
 
-	return memoryRegion{
+	return MemoryRegion{
 		BaseAddr:   start,
 		Size:       end - start,
 		Perms:      perms,

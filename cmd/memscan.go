@@ -10,20 +10,8 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
+	"github.com/chainreactors/proton/proton/sysinfo"
 )
-
-type memoryRegion struct {
-	BaseAddr   uint64
-	Size       uint64
-	Perms      string
-	MappedFile string
-}
-
-type memoryReader interface {
-	Regions() ([]memoryRegion, error)
-	ReadAt(buf []byte, addr uint64) (int, error)
-	Close() error
-}
 
 type memoryScanOptions struct {
 	ScanAll bool
@@ -41,7 +29,7 @@ var readBufPool = sync.Pool{
 	},
 }
 
-func shouldScanRegion(r memoryRegion, opts memoryScanOptions) bool {
+func shouldScanRegion(r sysinfo.MemoryRegion, opts memoryScanOptions) bool {
 	if !strings.Contains(r.Perms, "r") {
 		return false
 	}
@@ -97,28 +85,26 @@ func buildSysScanner(rules []sysRule, execOpts *protocols.ExecuterOptions) *file
 }
 
 func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOptions, pid int, callback func(file.Finding)) error {
-	// Group rules by source type
 	memoryRules := make([]sysRule, 0)
 	dataRules := make([]sysRule, 0)
 	for _, r := range rules {
-		src := sys.SourceMemory
+		src := sysinfo.SourceMemory
 		if r.Request != nil {
 			src = r.Request.Source
 		}
-		if src == sys.SourceMemory {
+		if src == sysinfo.SourceMemory {
 			memoryRules = append(memoryRules, r)
 		} else {
 			dataRules = append(dataRules, r)
 		}
 	}
 
-	// Scan non-memory sources (env, cmdline, fd, conn, pipe)
 	if len(dataRules) > 0 {
 		dataScanner := buildSysScanner(dataRules, execOpts)
 		if dataScanner != nil {
 			for _, rule := range dataRules {
 				src := rule.Request.Source
-				data, err := readSysData(pid, src)
+				data, err := sysinfo.ReadSource(pid, src)
 				if err != nil || len(data) == 0 {
 					continue
 				}
@@ -136,14 +122,13 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 		}
 	}
 
-	// Scan memory regions
 	if len(memoryRules) > 0 {
 		sysScanner := buildSysScanner(memoryRules, execOpts)
 		if sysScanner == nil {
 			return nil
 		}
 
-		reader, err := newMemoryReader(pid)
+		reader, err := sysinfo.NewMemoryReader(pid)
 		if err != nil {
 			return fmt.Errorf("cannot attach to pid %d: %w", pid, err)
 		}
@@ -154,7 +139,7 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 			return fmt.Errorf("cannot enumerate memory regions for pid %d: %w", pid, err)
 		}
 
-		var scanRegions []memoryRegion
+		var scanRegions []sysinfo.MemoryRegion
 		for _, r := range regions {
 			for _, mr := range memoryRules {
 				if mr.Request != nil && mr.Request.MatchesRegion(r.Perms, r.MappedFile) {
@@ -175,7 +160,7 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 			}
 
 			type memJob struct {
-				region memoryRegion
+				region sysinfo.MemoryRegion
 				group  *file.ScanGroup
 			}
 			jobCh := make(chan memJob, numWorkers*16)
@@ -209,7 +194,7 @@ func scanProcessWithSysRules(rules []sysRule, execOpts *protocols.ExecuterOption
 }
 
 func scanProcess(scanner *file.Scanner, pid int, opts memoryScanOptions, callback func(file.Finding)) error {
-	reader, err := newMemoryReader(pid)
+	reader, err := sysinfo.NewMemoryReader(pid)
 	if err != nil {
 		return fmt.Errorf("cannot attach to pid %d: %w", pid, err)
 	}
@@ -220,7 +205,7 @@ func scanProcess(scanner *file.Scanner, pid int, opts memoryScanOptions, callbac
 		return fmt.Errorf("cannot enumerate memory regions for pid %d: %w", pid, err)
 	}
 
-	var scanRegions []memoryRegion
+	var scanRegions []sysinfo.MemoryRegion
 	for _, r := range regions {
 		if shouldScanRegion(r, opts) {
 			scanRegions = append(scanRegions, r)
@@ -236,7 +221,7 @@ func scanProcess(scanner *file.Scanner, pid int, opts memoryScanOptions, callbac
 	}
 
 	type memJob struct {
-		region memoryRegion
+		region sysinfo.MemoryRegion
 		group  *file.ScanGroup
 	}
 	jobCh := make(chan memJob, numWorkers*16)
@@ -266,7 +251,7 @@ func scanProcess(scanner *file.Scanner, pid int, opts memoryScanOptions, callbac
 	return nil
 }
 
-func scanMemRegion(scanner *file.Scanner, reader memoryReader, region memoryRegion, label string, group *file.ScanGroup, cbMu *sync.Mutex, callback func(file.Finding)) {
+func scanMemRegion(scanner *file.Scanner, reader sysinfo.MemoryReader, region sysinfo.MemoryRegion, label string, group *file.ScanGroup, cbMu *sync.Mutex, callback func(file.Finding)) {
 	regionSize := region.Size
 	if regionSize > maxRegionReadSize {
 		regionSize = maxRegionReadSize

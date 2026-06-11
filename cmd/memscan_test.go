@@ -11,6 +11,7 @@ import (
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/proton/proton/file"
 	"github.com/chainreactors/proton/proton/sys"
+	"github.com/chainreactors/proton/proton/sysinfo"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,7 +19,7 @@ var memTestSecret = "PROTON_MEMSCAN_CMD_SECRET_ABC123"
 
 func TestScanProcessSelf(t *testing.T) {
 	pid := os.Getpid()
-	r, err := newMemoryReader(pid)
+	r, err := sysinfo.NewMemoryReader(pid)
 	if err != nil {
 		t.Skipf("cannot read own process memory: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestScanProcessSelf(t *testing.T) {
 
 func TestScanProcessWithSysRules(t *testing.T) {
 	pid := os.Getpid()
-	r, err := newMemoryReader(pid)
+	r, err := sysinfo.NewMemoryReader(pid)
 	if err != nil {
 		t.Skipf("cannot read own process memory: %v", err)
 	}
@@ -85,14 +86,14 @@ func TestScanProcessWithSysRules(t *testing.T) {
 func TestShouldScanRegionCmd(t *testing.T) {
 	tests := []struct {
 		name   string
-		region memoryRegion
+		region sysinfo.MemoryRegion
 		all    bool
 		want   bool
 	}{
-		{"writable heap", memoryRegion{Perms: "rw-p", MappedFile: "[heap]"}, false, true},
-		{"readonly code", memoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, false, false},
-		{"readonly code with scanall", memoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, true, true},
-		{"no read perm", memoryRegion{Perms: "---p"}, false, false},
+		{"writable heap", sysinfo.MemoryRegion{Perms: "rw-p", MappedFile: "[heap]"}, false, true},
+		{"readonly code", sysinfo.MemoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, false, false},
+		{"readonly code with scanall", sysinfo.MemoryRegion{Perms: "r-xp", MappedFile: "/lib/libc.so"}, true, true},
+		{"no read perm", sysinfo.MemoryRegion{Perms: "---p"}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,7 +118,7 @@ func TestParseMapsLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			region, ok := parseMapsLine(tt.line)
+			region, ok := sysinfo.ParseMapsLine(tt.line)
 			assert.Equal(t, tt.ok, ok)
 			if ok {
 				assert.Equal(t, tt.base, region.BaseAddr)

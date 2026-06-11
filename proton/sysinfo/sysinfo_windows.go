@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package cmd
+package sysinfo
 
 import (
 	"fmt"
@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	modntdll                         = syscall.NewLazyDLL("ntdll.dll")
-	procNtQueryInformationProcess    = modntdll.NewProc("NtQueryInformationProcess")
-	modiphlpapi                      = syscall.NewLazyDLL("iphlpapi.dll")
-	procGetExtendedTcpTable          = modiphlpapi.NewProc("GetExtendedTcpTable")
+	modntdll                      = syscall.NewLazyDLL("ntdll.dll")
+	procNtQueryInformationProcess = modntdll.NewProc("NtQueryInformationProcess")
+	modiphlpapi                   = syscall.NewLazyDLL("iphlpapi.dll")
+	procGetExtendedTcpTable       = modiphlpapi.NewProc("GetExtendedTcpTable")
 )
 
-func readProcessEnv(pid int) ([]byte, error) {
+func ReadProcessEnv(pid int) ([]byte, error) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, uint32(pid))
 	if err != nil {
 		return nil, fmt.Errorf("OpenProcess(%d): %w", pid, err)
@@ -32,15 +32,13 @@ func readProcessEnv(pid int) ([]byte, error) {
 		return nil, err
 	}
 
-	// Read PEB
-	var peb [6]uintptr // only need ProcessParameters at offset 0x20 (64-bit)
+	var peb [6]uintptr
 	err = readProcMem(h, pbi.PebBaseAddress, unsafe.Pointer(&peb[0]), unsafe.Sizeof(peb))
 	if err != nil {
 		return nil, fmt.Errorf("read PEB: %w", err)
 	}
 	paramsAddr := peb[4] // RTL_USER_PROCESS_PARAMETERS at PEB+0x20
 
-	// Read UNICODE_STRING for Environment at offset 0x80
 	var envAddr uintptr
 	var envSize uint32
 	err = readProcMem(h, paramsAddr+0x80, unsafe.Pointer(&envAddr), unsafe.Sizeof(envAddr))
@@ -61,11 +59,10 @@ func readProcessEnv(pid int) ([]byte, error) {
 		return nil, fmt.Errorf("read env block: %w", err)
 	}
 
-	// UTF-16 null-separated → UTF-8 newline-separated
 	return decodeEnvBlock(buf), nil
 }
 
-func readProcessCmdline(pid int) ([]byte, error) {
+func ReadProcessCmdline(pid int) ([]byte, error) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_VM_READ, false, uint32(pid))
 	if err != nil {
 		return nil, fmt.Errorf("OpenProcess(%d): %w", pid, err)
@@ -84,7 +81,6 @@ func readProcessCmdline(pid int) ([]byte, error) {
 	}
 	paramsAddr := peb[4]
 
-	// UNICODE_STRING CommandLine at offset 0x70
 	var strLen uint16
 	var strAddr uintptr
 	readProcMem(h, paramsAddr+0x70, unsafe.Pointer(&strLen), 2)
@@ -99,15 +95,13 @@ func readProcessCmdline(pid int) ([]byte, error) {
 	return utf16BytesToUTF8(buf), nil
 }
 
-func readProcessFDs(pid int) ([]byte, error) {
-	// Windows doesn't expose file handles easily without NtQuerySystemInformation
+func ReadProcessFDs(pid int) ([]byte, error) {
 	return nil, nil
 }
 
-func readProcessConns(pid int) ([]byte, error) {
-	// GetExtendedTcpTable with TCP_TABLE_OWNER_PID_ALL
+func ReadProcessConns(pid int) ([]byte, error) {
 	var size uint32
-	procGetExtendedTcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 1, windows.AF_INET, 5, 0) // 5 = TCP_TABLE_OWNER_PID_ALL
+	procGetExtendedTcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 1, windows.AF_INET, 5, 0)
 	if size == 0 {
 		return nil, nil
 	}
@@ -121,7 +115,7 @@ func readProcessConns(pid int) ([]byte, error) {
 
 	numEntries := *(*uint32)(unsafe.Pointer(&buf[0]))
 	var lines []string
-	entrySize := 24 // sizeof(MIB_TCPROW_OWNER_PID)
+	entrySize := 24
 	for i := uint32(0); i < numEntries; i++ {
 		offset := 4 + int(i)*entrySize
 		if offset+entrySize > len(buf) {
@@ -137,7 +131,7 @@ func readProcessConns(pid int) ([]byte, error) {
 		if int(ownerPid) != pid {
 			continue
 		}
-		if state < 2 { // skip CLOSED
+		if state < 2 {
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("tcp local=%s:%d remote=%s:%d",
@@ -146,8 +140,7 @@ func readProcessConns(pid int) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
-func readProcessPipes(pid int) ([]byte, error) {
-	// Enumerate \\.\pipe\* - this lists all pipes on the system, not per-process
+func ReadProcessPipes(pid int) ([]byte, error) {
 	pattern := `\\.\pipe\*`
 	var fd windows.Win32finddata
 	h, err := windows.FindFirstFile(syscall.StringToUTF16Ptr(pattern), &fd)
@@ -195,7 +188,6 @@ func readProcMem(h windows.Handle, addr uintptr, buf unsafe.Pointer, size uintpt
 }
 
 func decodeEnvBlock(b []byte) []byte {
-	// UTF-16LE double-null terminated block → UTF-8 newline-separated
 	var result []byte
 	for i := 0; i+1 < len(b); i += 2 {
 		ch := uint16(b[i]) | uint16(b[i+1])<<8
@@ -204,7 +196,7 @@ func decodeEnvBlock(b []byte) []byte {
 				result = append(result, '\n')
 			}
 			if i+3 < len(b) && b[i+2] == 0 && b[i+3] == 0 {
-				break // double null = end
+				break
 			}
 			continue
 		}

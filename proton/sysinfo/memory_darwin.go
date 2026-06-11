@@ -1,7 +1,7 @@
 //go:build darwin && cgo
 // +build darwin,cgo
 
-package cmd
+package sysinfo
 
 /*
 #include <mach/mach.h>
@@ -43,7 +43,7 @@ type darwinMemReader struct {
 	pid  int
 }
 
-func newMemoryReader(pid int) (memoryReader, error) {
+func NewMemoryReader(pid int) (MemoryReader, error) {
 	var task C.mach_port_t
 	kr := C.task_for_pid(C.mach_task_self(), C.int(pid), &task)
 	if kr != C.KERN_SUCCESS {
@@ -52,8 +52,8 @@ func newMemoryReader(pid int) (memoryReader, error) {
 	return &darwinMemReader{task: task, pid: pid}, nil
 }
 
-func (r *darwinMemReader) Regions() ([]memoryRegion, error) {
-	var regions []memoryRegion
+func (r *darwinMemReader) Regions() ([]MemoryRegion, error) {
+	var regions []MemoryRegion
 	var addr C.mach_vm_address_t
 
 	for {
@@ -65,7 +65,7 @@ func (r *darwinMemReader) Regions() ([]memoryRegion, error) {
 		}
 
 		perms := machProtToPerms(int(info.protection))
-		regions = append(regions, memoryRegion{
+		regions = append(regions, MemoryRegion{
 			BaseAddr: uint64(addr),
 			Size:     uint64(size),
 			Perms:    perms,
