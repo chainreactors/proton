@@ -76,13 +76,13 @@ type MatchEvent struct {
 }
 
 type Finding struct {
-	TemplateID   string
-	TemplateName string
-	Severity     string
-	FilePath     string
-	Matches      map[string][]MatchEvent
-	Extracts     []MatchEvent
-	Result       *operators.Result
+	TemplateID   string                  `json:"template-id"`
+	TemplateName string                  `json:"template-name"`
+	Severity     string                  `json:"severity"`
+	FilePath     string                  `json:"file"`
+	Matches      map[string][]MatchEvent `json:"matches,omitempty"`
+	Extracts     []MatchEvent            `json:"extracts,omitempty"`
+	Result       *operators.Result       `json:"-"`
 }
 
 type ScanStats struct {

@@ -28,15 +28,6 @@ var (
 	nextHandle int64
 )
 
-type findingJSON struct {
-	TemplateID   string                       `json:"template-id"`
-	TemplateName string                       `json:"template-name"`
-	Severity     string                       `json:"severity"`
-	FilePath     string                       `json:"file"`
-	Matches      map[string][]file.MatchEvent `json:"matches,omitempty"`
-	Extracts     []file.MatchEvent            `json:"extracts,omitempty"`
-}
-
 //export ProtonVersion
 func ProtonVersion() *C.char {
 	return C.CString(version)
@@ -94,17 +85,10 @@ func ProtonScanData(handle C.int, data unsafe.Pointer, dataLen C.int, filePath *
 		goPath = C.GoString(filePath)
 	}
 
-	var findings []findingJSON
+	var findings []file.Finding
 	for _, group := range s.Groups {
 		for _, f := range s.ScanData(goData, goPath, group) {
-			findings = append(findings, findingJSON{
-				TemplateID:   f.TemplateID,
-				TemplateName: f.TemplateName,
-				Severity:     f.Severity,
-				FilePath:     f.FilePath,
-				Matches:      f.Matches,
-				Extracts:     f.Extracts,
-			})
+			findings = append(findings, f)
 		}
 	}
 
@@ -130,17 +114,10 @@ func ProtonScanBlock(handle C.int, data unsafe.Pointer, dataLen C.int, label *C.
 		goLabel = C.GoString(label)
 	}
 
-	var findings []findingJSON
+	var findings []file.Finding
 	for _, group := range s.Groups {
 		for _, f := range s.ScanBlock(goData, goLabel, group) {
-			findings = append(findings, findingJSON{
-				TemplateID:   f.TemplateID,
-				TemplateName: f.TemplateName,
-				Severity:     f.Severity,
-				FilePath:     f.FilePath,
-				Matches:      f.Matches,
-				Extracts:     f.Extracts,
-			})
+			findings = append(findings, f)
 		}
 	}
 
