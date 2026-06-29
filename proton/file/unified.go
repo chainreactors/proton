@@ -17,6 +17,7 @@ import (
 	"github.com/chainreactors/neutron/operators"
 	"github.com/chainreactors/neutron/protocols"
 	"github.com/chainreactors/utils/ahocorasick"
+	"github.com/chainreactors/utils/parsers"
 	mmap "github.com/edsrzf/mmap-go"
 )
 
@@ -69,21 +70,9 @@ type fileResult struct {
 	extractorHits [][]matchHit
 }
 
-type MatchEvent struct {
-	Value  string `json:"value"`
-	Line   int    `json:"line"`
-	Offset int    `json:"offset,omitempty"`
-}
+type MatchEvent = parsers.ProtonMatchEvent
 
-type Finding struct {
-	TemplateID   string                  `json:"template-id"`
-	TemplateName string                  `json:"template-name"`
-	Severity     string                  `json:"severity"`
-	FilePath     string                  `json:"file"`
-	Matches      map[string][]MatchEvent `json:"matches,omitempty"`
-	Extracts     []MatchEvent            `json:"extracts,omitempty"`
-	Result       *operators.Result       `json:"-"`
-}
+type Finding = parsers.ProtonFinding
 
 type ScanStats struct {
 	Files    int64

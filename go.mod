@@ -6,8 +6,9 @@ toolchain go1.24.3
 
 require (
 	github.com/chainreactors/fingers v1.2.1
-	github.com/chainreactors/neutron v0.0.0-20260608084636-c81691731908
-	github.com/chainreactors/utils v0.0.0-20260529172343-6465cb8568b2
+	github.com/chainreactors/neutron v0.1.1-0.20260629055246-979be130dcaa
+	github.com/chainreactors/utils v0.0.0-20260626175554-d3e25e531450
+	github.com/chainreactors/utils/parsers v0.0.0-20260629054935-23a3e0a235f9
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/gobwas/glob v0.2.3
@@ -20,10 +21,11 @@ require (
 )
 
 require (
-	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
+	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible // indirect
 	github.com/chainreactors/logs v0.0.0-20260508055944-c678762ed15c // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
+	github.com/facebookincubator/nvdtools v0.1.5 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/go-dedup/megophone v0.0.0-20170830025436-f01be21026f5 // indirect
 	github.com/go-dedup/simhash v0.0.0-20170904020510-9ecaca7b509c // indirect
@@ -43,4 +45,5 @@ require (
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.3.7 // indirect
 )
