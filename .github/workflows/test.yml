@@ -58,6 +58,10 @@ jobs:
         run: |
           sed -i '/^toolchain /d' go.mod
           sed -i 's/^go .*/go 1.17/' go.mod
+          sed -i '/wasilibs\/go-re2/d' go.mod
+          sed -i '/tetratelabs\/wazero/d' go.mod
+          sed -i '/wasilibs\/wazero-helpers/d' go.mod
+          sed -i '/charlievieth\/fastwalk/d' go.mod
           CGO_ENABLED=0 go build -v ./proton/file/
           CGO_ENABLED=0 go test -v -count=1 ./proton/file/
         env:
