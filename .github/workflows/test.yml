@@ -59,6 +59,7 @@ jobs:
           sed -i '/^toolchain /d' go.mod
           sed -i 's/^go .*/go 1.17/' go.mod
           rm proton/file/compat.go
+          rm proton/file/find_test.go proton/file/unified_bench_test.go
           go mod edit -droprequire github.com/wasilibs/go-re2
           go mod edit -droprequire github.com/tetratelabs/wazero
           go mod edit -droprequire github.com/wasilibs/wazero-helpers
