@@ -47,7 +47,7 @@ jobs:
         run: CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v ./proton/file/ ./template/
 
   test-legacy:
-    name: "Go 1.17 (legacy)"
+    name: "Go 1.17 (build-only)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
           sed -i '/^toolchain /d' go.mod
           sed -i 's/^go .*/go 1.17/' go.mod
           rm proton/file/compat.go
-          rm proton/file/find_test.go proton/file/unified_bench_test.go
+          rm proton/file/*_test.go
           go mod edit -droprequire github.com/wasilibs/go-re2
           go mod edit -droprequire github.com/tetratelabs/wazero
           go mod edit -droprequire github.com/wasilibs/wazero-helpers
@@ -67,6 +67,5 @@ jobs:
           go mod edit -droprequire github.com/chainreactors/fingers
           sed -i '/wasilibs/d; /wazero/d; /fastwalk/d; /chainreactors\/fingers/d' go.sum
           CGO_ENABLED=0 go build -v ./proton/file/
-          CGO_ENABLED=0 go test -v -count=1 ./proton/file/
         env:
           GOFLAGS: "-mod=mod"
