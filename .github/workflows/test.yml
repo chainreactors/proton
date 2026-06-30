@@ -58,16 +58,14 @@ jobs:
         run: |
           sed -i '/^toolchain /d' go.mod
           sed -i 's/^go .*/go 1.17/' go.mod
+          rm proton/file/compat.go
           go mod edit -droprequire github.com/wasilibs/go-re2
           go mod edit -droprequire github.com/tetratelabs/wazero
           go mod edit -droprequire github.com/wasilibs/wazero-helpers
           go mod edit -droprequire github.com/charlievieth/fastwalk
           go mod edit -droprequire github.com/chainreactors/fingers
-          go mod edit -replace golang.org/x/sys=golang.org/x/sys@v0.21.0
           sed -i '/wasilibs/d; /wazero/d; /fastwalk/d; /chainreactors\/fingers/d' go.sum
           CGO_ENABLED=0 go build -v ./proton/file/
           CGO_ENABLED=0 go test -v -count=1 ./proton/file/
         env:
           GOFLAGS: "-mod=mod"
-          GONOSUMCHECK: "golang.org/x/sys"
-          GONOSUMDB: "golang.org/x/sys"
