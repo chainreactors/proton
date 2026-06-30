@@ -81,8 +81,8 @@ github.com/chainreactors/neutron v0.1.1-0.20260629055246-979be130dcaa h1:hUn4Xbo
 github.com/chainreactors/neutron v0.1.1-0.20260629055246-979be130dcaa/go.mod h1:UzB5SHkaz7/6Is8nU8NbXEMRbTbWmk44JFhk1M7qNns=
 github.com/chainreactors/utils v0.0.0-20260626175554-d3e25e531450 h1:jid2THKKoGUesM5EvDOieck+rMiS5hyk8bQOBlbMdz8=
 github.com/chainreactors/utils v0.0.0-20260626175554-d3e25e531450/go.mod h1:xwbUlFoSSxLHujyb8D48o1s2DqmEAxUNfxIy0DVUmcg=
-github.com/chainreactors/utils/parsers v0.0.0-20260629054935-23a3e0a235f9 h1:IOqCX8Hol0s8xul5d1VRQFjqvKyRCx1djU1MuLCLEZg=
-github.com/chainreactors/utils/parsers v0.0.0-20260629054935-23a3e0a235f9/go.mod h1:S9lkpQ1I4wcBq0YEBde/UPmR061IPok3bLl7aPz6Vkk=
+github.com/chainreactors/utils/parsers v0.0.0-20260630095004-c4fb7a13ed39 h1:Pxgj0sALXGYExWSwlNtf760mAWq/92W6exCdaXBL/LE=
+github.com/chainreactors/utils/parsers v0.0.0-20260630095004-c4fb7a13ed39/go.mod h1:S9lkpQ1I4wcBq0YEBde/UPmR061IPok3bLl7aPz6Vkk=
 github.com/charlievieth/fastwalk v1.0.14 h1:3Eh5uaFGwHZd8EGwTjJnSpBkfwfsak9h6ICgnWlhAyg=
 github.com/charlievieth/fastwalk v1.0.14/go.mod h1:diVcUreiU1aQ4/Wu3NbxxH4/KYdKpLDojrQ1Bb2KgNY=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=

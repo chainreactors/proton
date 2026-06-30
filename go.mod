@@ -8,7 +8,7 @@ require (
 	github.com/chainreactors/fingers v1.2.1
 	github.com/chainreactors/neutron v0.1.1-0.20260629055246-979be130dcaa
 	github.com/chainreactors/utils v0.0.0-20260626175554-d3e25e531450
-	github.com/chainreactors/utils/parsers v0.0.0-20260629054935-23a3e0a235f9
+	github.com/chainreactors/utils/parsers v0.0.0-20260630095004-c4fb7a13ed39
 	github.com/charlievieth/fastwalk v1.0.14
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/gobwas/glob v0.2.3
